@@ -112,7 +112,7 @@ A S D F            7 8 9 E
 Z X C V            A 0 B F
 ```
 
-On Windows, keys are matched by physical position (scan code), so the layout works on AZERTY, QWERTZ and similar keyboards, and isn't affected by Shift. **About** shows the mapping as a table.
+On Windows and macOS, keys are matched by physical position (scan code or virtual key code), so the layout works on AZERTY, QWERTZ and similar keyboards, and isn't affected by Shift. **About** shows the mapping as a table.
 
 ## Code overview
 
