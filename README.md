@@ -8,9 +8,10 @@ Ready-made builds are on the [Releases page](https://github.com/iljafiers/Chip8E
 
 | File | Platform |
 |---|---|
+| `Chip8Emulator-<version>-win64.zip` | Windows 10/11, 64-bit. Unzip anywhere and run `Chip8Emulator.exe`. |
 | `Chip8Emulator-<version>-macOS.dmg` | macOS 14.4 (Sonoma) or later, Intel and Apple Silicon |
 
-On other platforms, build it from source (see [Building](#building)).
+On Linux, build it from source (see [Building](#building)).
 
 ### Installing on macOS
 
