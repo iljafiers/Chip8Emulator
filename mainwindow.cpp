@@ -277,8 +277,9 @@ void MainWindow::createMenus()
     runMenu->addSeparator();
     runMenu->addAction(m_actStep);
 
-    // "About" sits directly on the menu bar (no submenu), as requested.
-    menuBar()->addAction(m_actAbout);
+    // on macOS, Qt moves About into the application menu
+    QMenu *helpMenu = menuBar()->addMenu(tr("&Help"));
+    helpMenu->addAction(m_actAbout);
 }
 
 void MainWindow::createToolbar()
@@ -595,7 +596,7 @@ void MainWindow::onEmulationTick()
 
         m_chip8.tickTimers();
 
-        while (m_instructionAllotment > TICKS_PER_SECOND)
+        while (m_instructionAllotment >= TICKS_PER_SECOND)
         {
             m_instructionAllotment -= TICKS_PER_SECOND;
 
@@ -612,8 +613,8 @@ void MainWindow::onEmulationTick()
                 m_runState = RunState::Error;
                 m_cpuTimer->stop();
                 m_beeper->setActive(false); // don't keep beeping while the message is open
-                m_statusStateLabel->setText(tr("Error: %1").arg(QString::fromStdString(m_chip8.errorString())));
                 updateRunningActions();
+                m_statusStateLabel->setText(tr("Error: %1").arg(QString::fromStdString(m_chip8.errorString())));
                 showErrorMessage();
                 break;
             }
