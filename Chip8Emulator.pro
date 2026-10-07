@@ -15,6 +15,13 @@ win32 {
     QMAKE_TARGET_COPYRIGHT   = "Copyright (c) 2026 Ilja Fiers"
 }
 
+# macOS: app bundle icon, bundle id and a universal (Intel + Apple Silicon) build
+macx {
+    ICON = icons/app.icns
+    QMAKE_TARGET_BUNDLE_PREFIX = com.iljafiers
+    QMAKE_APPLE_DEVICE_ARCHS   = x86_64 arm64
+}
+
 SOURCES += \
     main.cpp \
     mainwindow.cpp \

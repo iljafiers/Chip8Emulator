@@ -2,6 +2,40 @@
 
 A CHIP-8 interpreter with a Qt 6 Widgets front-end. It runs classic 64×32 CHIP-8 programs and SUPER-CHIP programs, including the 128×64 high-resolution mode. It also has selectable compatibility quirks, sound, and a step-by-step debug mode.
 
+## Download
+
+Ready-made builds are on the [Releases page](https://github.com/iljafiers/Chip8Emulator/releases).
+
+| File | Platform |
+|---|---|
+| `Chip8Emulator-<version>-macOS.dmg` | macOS 14.4 (Sonoma) or later, Intel and Apple Silicon |
+
+On other platforms, build it from source (see [Building](#building)).
+
+### Installing on macOS
+
+> [!WARNING]
+> **The macOS build is not signed with an Apple Developer ID and is not notarized by Apple.** I don't have a paid Apple Developer account. The app only carries an *ad-hoc* signature, which lets it run on Apple Silicon but doesn't tell macOS who made it.
+>
+> Because of that, macOS blocks the app the first time you open it, with a message like *"Chip8 Emulator" Not Opened* or *Apple could not verify "Chip8 Emulator" is free of malware*. This is expected for any unsigned app downloaded from the internet; it does not mean the file is damaged.
+>
+> Only continue if you trust this download. You can always build the app yourself from the source code instead.
+
+1. Open the `.dmg` and drag **Chip8Emulator** onto **Applications**.
+2. Open the app once. macOS refuses and shows the warning above. Click **Done** (not *Move to Trash*).
+3. Open **System Settings → Privacy & Security**, scroll down to the *Security* section, and click **Open Anyway** next to the message about Chip8Emulator. Confirm with your password or Touch ID.
+4. The app now opens, and macOS remembers your choice for later launches.
+
+On macOS 14 (Sonoma) you can also right-click (or Control-click) the app in Finder and choose **Open**. Since macOS 15 (Sequoia) that shortcut no longer works, so use step 3.
+
+Alternatively, remove the quarantine flag in Terminal:
+
+```
+xattr -dr com.apple.quarantine /Applications/Chip8Emulator.app
+```
+
+You need to do this again after installing a new version.
+
 ## Building
 
 Requirements:
@@ -14,6 +48,16 @@ Open `Chip8Emulator.pro` in Qt Creator, or build from the command line:
 qmake Chip8Emulator.pro
 make            # or mingw32-make / nmake, depending on the toolchain
 ```
+
+### macOS release package
+
+`scripts/package-macos.sh` builds the `.dmg` that is published on the Releases page:
+
+```
+scripts/package-macos.sh ~/Qt/6.12.0/macos
+```
+
+It builds a universal (Intel + Apple Silicon) release, copies the Qt frameworks into the app with `macdeployqt`, gives the app an ad-hoc signature, and writes `build/Chip8Emulator-<version>-macOS.dmg`. The lowest supported macOS version comes from the Qt version used (14.4 for Qt 6.12). The bundle icon is `icons/app.icns`.
 
 The toolbar icons are PNGs compiled into the executable (`resources.qrc`), so the Qt SVG module is not needed.
 
