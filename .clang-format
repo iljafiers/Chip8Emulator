@@ -1,0 +1,42 @@
+# Code style for Chip8Emulator, applied with clang-format
+BasedOnStyle: LLVM
+UseTab: Never                    # the actual fix: indent with spaces only
+IndentWidth: 4
+TabWidth: 4
+ContinuationIndentWidth: 4
+ColumnLimit: 0                   # keep your own line breaks, don't rewrap
+
+# Braces on their own line (Allman), except for namespaces and lambdas
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterCaseLabel: true
+  AfterClass: true
+  AfterControlStatement: Always
+  AfterEnum: true
+  AfterFunction: true
+  AfterNamespace: false          # namespace {
+  AfterStruct: true
+  AfterUnion: true
+  AfterExternBlock: true
+  BeforeCatch: true
+  BeforeElse: true
+  BeforeLambdaBody: false
+  SplitEmptyFunction: true
+  SplitEmptyRecord: true
+  SplitEmptyNamespace: true
+
+IndentCaseLabels: true           # case labels indented inside switch
+AccessModifierOffset: -4         # public:/private: in line with "class"
+PointerAlignment: Right          # const QKeyEvent *event
+AllowShortFunctionsOnASingleLine: InlineOnly    # one-line getters in headers
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: true         # case Qt::Key_1: return 0x1;
+AllowShortLambdasOnASingleLine: All
+BreakConstructorInitializers: BeforeComma       # one member per line, comma first
+PackConstructorInitializers: Never
+BreakBeforeBinaryOperators: NonAssignment       # continued lines start with + or &&
+FixNamespaceComments: false
+SortIncludes: Never              # leave include order alone
+NamespaceIndentation: None
+AlignConsecutiveAssignments: Consecutive    # keep hand-aligned "a    = 1" blocks
+AlignConsecutiveDeclarations: Consecutive   # and "uint8_t  name;" member lists

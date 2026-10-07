@@ -1,0 +1,22 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <file>icons/app.png</file>
+        <file>icons/play.png</file>
+        <file>icons/play@2x.png</file>
+        <file>icons/pause.png</file>
+        <file>icons/pause@2x.png</file>
+        <file>icons/stop.png</file>
+        <file>icons/stop@2x.png</file>
+        <file>icons/step.png</file>
+        <file>icons/step@2x.png</file>
+        <file>icons/play-disabled.png</file>
+        <file>icons/play-disabled@2x.png</file>
+        <file>icons/pause-disabled.png</file>
+        <file>icons/pause-disabled@2x.png</file>
+        <file>icons/stop-disabled.png</file>
+        <file>icons/stop-disabled@2x.png</file>
+        <file>icons/step-disabled.png</file>
+        <file>icons/step-disabled@2x.png</file>
+    </qresource>
+</RCC>
