@@ -1,6 +1,6 @@
 # Chip8 Emulator
 
-A CHIP-8 interpreter with a Qt 6 Widgets front-end. It runs classic 64×32 CHIP-8 programs, SUPER-CHIP programs including the 128×64 high-resolution mode, and XO-CHIP programs with 64 KB of memory, four colours and audio patterns. It also has selectable compatibility quirks, sound, and a step-by-step debug mode.
+A CHIP-8 interpreter with a Qt 6 Widgets front-end. It runs classic 64×32 CHIP-8 programs, COSMAC VIP 64×64 hires programs, SUPER-CHIP programs including the 128×64 high-resolution mode, and XO-CHIP programs with 64 KB of memory, four colours and audio patterns. It also has selectable compatibility quirks, sound, and a step-by-step debug mode.
 
 ## Download
 
@@ -120,7 +120,7 @@ On Windows and macOS, keys are matched by physical position (scan code or virtua
 |---|---|
 | `chip8.h/.cpp` | `Chip8`: the interpreter core, in plain C++17 with no Qt dependency, so it can be reused outside this GUI. Random numbers come from `rand()`, seeded once from the clock. |
 | `mainwindow.h/.cpp` | `MainWindow`: menus, toolbar, status bar, keyboard input, timing, settings, error reporting |
-| `displaywidget.h/.cpp` | `DisplayWidget`: draws the frame buffer (64×32 or 128×64), scaled and centred, in the selected colour theme |
+| `displaywidget.h/.cpp` | `DisplayWidget`: draws the frame buffer (64×32, 64×64 or 128×64), scaled and centred, in the selected colour theme |
 | `beeper.h/.cpp` | `Beeper` and `ToneGenerator`: the 440 Hz buzzer tone, or an XO-CHIP audio pattern |
 | `preferencesdialog.h/.cpp` | `PreferencesDialog`: speed, sound, display theme and quirk settings |
 | `main.cpp` | Creates the application and the main window |
@@ -137,7 +137,7 @@ The machine state is held directly in the class:
 | Program counter | PC |
 | Stack | 16 entries, with stack pointer SP |
 | Timers | Delay and sound timers |
-| Display | One byte per pixel. 64×32, or 128×64 while `m_hiResMode` is set. Bit 0 is bitplane 1 and bit 1 is bitplane 2 (XO-CHIP), so a pixel is 0–3. |
+| Display | One byte per pixel. 64×32, 128×64 while `m_hiResMode` is set, or 64×64 while `m_vipHiResMode` is set. Bit 0 is bitplane 1 and bit 1 is bitplane 2 (XO-CHIP), so a pixel is 0–3. |
 | Audio | The XO-CHIP audio pattern (16 bytes) and pitch |
 | Keys | The state of the 16 keypad keys |
 
@@ -153,7 +153,7 @@ Main operations:
 | `setKeyState()`, `isKeyPressed()` | Updates and reads the keypad state. |
 | `hasError()`, `errorString()`, `error()`, `errorPC()`, `errorOpcode()` | Report errors. `errorString()` returns a `std::string`. |
 | `PC()`, `I()`, `SP()`, `V(x)`, `delayTimer()`, `soundTimer()` | Read-only access to the CPU state, for the status bar and the error popup. |
-| `displayBuffer()`, `displayWidth()`, `displayHeight()`, `isHiResMode()` | The frame buffer and its current resolution. |
+| `displayBuffer()`, `displayWidth()`, `displayHeight()`, `isHiResMode()`, `isVipHiResMode()` | The frame buffer and its current resolution. |
 | `audioPattern()`, `hasAudioPattern()`, `pitch()` | The XO-CHIP audio pattern and its playback pitch. `hasAudioPattern()` stays false until `F002` runs, so the front-end plays the classic beep until then. |
 | `memorySize()` | 4096, or 65536 with XO-CHIP. |
 
@@ -171,6 +171,7 @@ Implementation notes:
 | `GraphicsChanged` | The display buffer changed |
 | `ModeToHigh` | `00FF` switched to 128×64. The display was cleared. |
 | `ModeToLow` | `00FE` switched back to 64×32. The display was cleared. |
+| `ModeToVipHires` | A COSMAC VIP hires program started, and the display switched to 64×64. The display was cleared. |
 | `Exited` | The program ended with `00FD`. Further steps do nothing. |
 
 ### SUPER-CHIP instructions
@@ -190,6 +191,17 @@ These SUPER-CHIP details follow Octo, the de-facto modern reference:
 - `DXY0` draws 16×16 in both modes.
 - The large font includes A–F.
 - A collision sets VF to 1, not to the number of colliding rows as on the original HP48.
+
+### COSMAC VIP 64×64 hires mode
+
+Some VIP programs use a 64×64 "two-page" display. On a real VIP, the program starts with a loader that patches the CHIP-8 interpreter in memory below `0x200`, then calls 1802 machine code at `0x2AC` to set up the larger display. The program proper starts at `0x2C0`. An emulator can't run that machine code, so `Chip8` recognises the loader instead, as Revival Studios suggest in their hires ROM pack:
+
+- **Detection.** When the PC is at `0x200` with opcode `1260`, and memory `0x200`–`0x2AD` matches the standard loader byte for byte, the display switches to 64×64, clears, and execution continues at `0x2C0`. `step()` returns `ModeToVipHires`. Matching the whole loader, and not just the `1260` jump, means an ordinary program that happens to start by jumping to `0x260` isn't affected.
+- **`0230`** is a call to the loader's clear-screen routine. In this mode it clears the display; otherwise, like other `0NNN` calls, it's ignored.
+- Sprites, collisions and wrapping work as in 64×32 mode, on the larger screen.
+- `00FE`/`00FF`, loading a ROM and **Stop** leave the mode.
+
+The display keeps the window's 2:1 shape, so a 64×64 image is drawn as a square in the middle, with background-coloured margins on either side.
 
 ### XO-CHIP instructions
 
@@ -264,11 +276,11 @@ The Octo theme uses the default colours of Octo, so XO-CHIP games look the way t
 
 The themes are listed once, in `displayThemes()` in `displaywidget.cpp`. To add a theme, add an enum value and a row there; the dialog picks it up automatically. The settings store the theme's key (for example `orangeOnBlack`) rather than its number, so reordering the list doesn't change anyone's saved choice.
 
-**Resolution switches.** Both modes have the same 2:1 aspect ratio, so the window is never resized. When an instruction returns `ModeToHigh` or `ModeToLow`, `MainWindow::showDisplay()` copies the frame at the new resolution. `DisplayWidget` then rescales it to fit the same area, and the status bar shows the current resolution (`64x32` or `128x64`).
+**Resolution switches.** The window is never resized. When an instruction returns `ModeToHigh`, `ModeToLow` or `ModeToVipHires`, `MainWindow::showDisplay()` copies the frame at the new resolution. `DisplayWidget` then rescales it to fit the same area, and the status bar shows the current resolution (`64x32`, `64x64` or `128x64`). 64×32 and 128×64 have the window's 2:1 shape and fill it; 64×64 is drawn as a centred square.
 
 Loading a ROM or pressing **Stop** returns to low resolution.
 
-**Fitting the window.** Because the scale is a whole number, a freely sized window would leave a margin around the image, drawn in the background colour. To avoid that, `fitWindowToDisplay()` shrinks the window after every resize, so the display area is an exact multiple of 128×64. The image then fills it exactly in both resolutions, because 64×32 is drawn at twice the 128×64 scale.
+**Fitting the window.** Because the scale is a whole number, a freely sized window would leave a margin around the image, drawn in the background colour. To avoid that, `fitWindowToDisplay()` shrinks the window after every resize, so the display area is an exact multiple of 128×64. A 64×32 or 128×64 image then fills it exactly, because 64×32 is drawn at twice the 128×64 scale. A 64×64 image is drawn at the 64×32 scale, as a centred square.
 - On Windows, the fit happens when the user releases the window frame (`WM_EXITSIZEMOVE`, caught in `nativeEvent()`), so it never fights the mouse.
 - Other resizes are fitted 200 ms after they settle, through `m_fitTimer`. That includes the first show of the window.
 - Maximized and full-screen windows are left alone.
@@ -281,7 +293,7 @@ By default the tone is a 440 Hz square wave. After an XO-CHIP program runs `F002
 
 ## Limitations
 
-- **The VIP 64×64 two-page hires mode is not supported.**
+- **Some hires programs need their own quirk settings too.** Hires Sierpinski from the Chip-8 Program Pack only draws two dots with the VIP preset. It expects `FX55`/`FX65` to leave I unchanged, and draws correctly with that quirk off.
 - **Some XO-CHIP games need their own quirk settings.** Octo lets authors change the quirks per game. For example, skyward from the CHIP-8 Archive expects `FX55`/`FX65` to leave I unchanged, and crashes with the XO-CHIP preset unless that quirk is turned off.
 - **XO-CHIP games often need a higher speed.** Many are written for Octo's speeds of hundreds of instructions per frame, so set the speed to 20000–60000 instructions per second or more.
 - **Some SUPER-CHIP games written with Octo need the VIP quirk preset.** For example, octopeg and sub8 from the CHIP-8 Archive stop with an invalid opcode under the SUPER-CHIP preset, but run with the VIP one.
@@ -296,7 +308,7 @@ Most CHIP-8 software is public-domain homebrew, written from 1977 onwards. These
 - **[kripod/chip8-roms](https://github.com/kripod/chip8-roms)**: the classic "Chip-8 Program Pack" put together by Revival Studios.
   - It includes the well-known games (Pong, Tetris, Space Invaders, Brix, Blinky, …), demos and test programs.
   - Each ROM comes with a `.txt` file that gives its author, date and controls.
-  - The `hires` folder holds the 64×64 VIP programs, which this emulator doesn't support (that mode is different from the SUPER-CHIP 128×64 mode).
+  - The `hires` folder holds the 64×64 COSMAC VIP programs (a different mode from the SUPER-CHIP 128×64 one). They run with the VIP preset; see [COSMAC VIP 64×64 hires mode](#cosmac-vip-6464-hires-mode).
 - **[Zophar's Domain: CHIP-8 public-domain ROMs](https://www.zophar.net/pdroms/chip8.html)**: two classic downloads.
   - The *Chip-8 Games Pack* has 22 games, including Pong, Tetris, Invaders and Maze.
   - The *Super Chip Games Pack* (11 games, including Joust, Race and Alien) needs SUPER-CHIP support.

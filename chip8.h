@@ -7,7 +7,7 @@
 #include <string>
 
 // Core CHIP-8 / SUPER-CHIP / XO-CHIP interpreter: memory, registers, the
-// instruction set, the 64x32 and 128x64 displays, error reporting and the
+// instruction set, the 64x32, 64x64 and 128x64 displays, error reporting and the
 // behaviour "quirks" that differ between classic CHIP-8 and later interpreters.
 // Has no GUI dependencies; the front-end drives it one instruction at a time.
 //
@@ -23,6 +23,8 @@ public:
     static const int LORES_HEIGHT       = 32;
     static const int HIRES_WIDTH        = 128; // high resolution (SUPER-CHIP 00FF)
     static const int HIRES_HEIGHT       = 64;
+    static const int VIP_HIRES_WIDTH    = 64; // COSMAC VIP two-page hires (64x64)
+    static const int VIP_HIRES_HEIGHT   = 64;
     static const int START_ADDRESS      = 0x200;
     static const int AUDIO_PATTERN_SIZE = 16; // XO-CHIP F002: 128 one-bit samples
     static const int DEFAULT_PITCH      = 64; // XO-CHIP FX3A: plays the pattern at 4000 Hz
@@ -86,6 +88,7 @@ public:
         GraphicsChanged, // the display buffer changed
         ModeToHigh,      // switched to 128x64 (00FF); the display was cleared
         ModeToLow,       // switched to 64x32 (00FE); the display was cleared
+        ModeToVipHires,  // switched to 64x64 (COSMAC VIP two-page hires); the display was cleared
         Exited           // the program ended with 00FD; further steps do nothing
     };
 
@@ -110,8 +113,9 @@ public:
     // are 0-3; without XO-CHIP only plane 1 is drawn and pixels are 0 or 1.
     const uint8_t *displayBuffer() const { return m_display; }
     bool           isHiResMode() const { return m_hiResMode; }
-    int            displayWidth() const { return m_hiResMode ? HIRES_WIDTH : LORES_WIDTH; }
-    int            displayHeight() const { return m_hiResMode ? HIRES_HEIGHT : LORES_HEIGHT; }
+    bool           isVipHiResMode() const { return m_vipHiResMode; }
+    int            displayWidth() const { return m_hiResMode ? HIRES_WIDTH : m_vipHiResMode ? VIP_HIRES_WIDTH : LORES_WIDTH; }
+    int            displayHeight() const { return m_hiResMode ? HIRES_HEIGHT : m_vipHiResMode ? VIP_HIRES_HEIGHT : LORES_HEIGHT; }
 
     void   setQuirks(const Quirks &q) { m_quirks = q; }
     Quirks quirks() const { return m_quirks; }
@@ -150,6 +154,7 @@ private:
     uint8_t  m_soundTimer;
     uint8_t  m_display[HIRES_WIDTH * HIRES_HEIGHT]; // sized for hires; lores uses the first 64x32
     bool     m_hiResMode;                           // SUPER-CHIP 128x64 mode, switched by 00FF / 00FE
+    bool     m_vipHiResMode;                        // COSMAC VIP 64x64 two-page hires, see enterVipHiResMode()
     uint8_t  m_rplFlags[16];                        // SUPER-CHIP FX75/FX85 storage (the HP48 "RPL user flags")
     bool     m_keys[16];
     int8_t   m_waitKey; // FX0A: key pressed while waiting, -1 if none yet
@@ -177,6 +182,7 @@ private:
     bool writeSpriteToDisplay(uint8_t x, uint8_t y, uint8_t height, uint8_t spriteWidth, uint16_t iReg);
     void scrollDisplay(int dx, int dy);
     void clearDisplay();
+    bool enterVipHiResMode();
 };
 
 #endif // CHIP8_H

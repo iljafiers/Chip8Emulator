@@ -45,6 +45,31 @@ const uint8_t bigFontset[160] = {
     0xFF, 0xFF, 0xC0, 0xC0, 0xFF, 0xFF, 0xC0, 0xC0, 0xFF, 0xFF, // E
     0xFF, 0xFF, 0xC0, 0xC0, 0xFF, 0xFF, 0xC0, 0xC0, 0xC0, 0xC0  // F
 };
+
+// COSMAC VIP two-page hires (64x64) programs start with this loader. It jumps
+// to 0x260, patches the original VIP interpreter in memory below 0x200 and calls
+// 1802 machine code at 0x2AC to set up the 64x64 display. An emulator can't run
+// that machine code, so it recognises the loader instead, switches to 64x64 and
+// starts the program at 0x2C0. The CHIP-8 program then clears the screen with
+// 0230, a call to a machine code routine in the loader.
+const uint8_t vipHiResLoader[] = {
+    0x12, 0x60, 0x01, 0x7A, 0x42, 0x70, 0x22, 0x78, 0x22, 0x52, 0xC4, 0x19,
+    0xF8, 0x00, 0xA0, 0x9B, 0xFA, 0x0E, 0xB0, 0xE2, 0xE2, 0x80, 0xE2, 0x20,
+    0xA0, 0xE2, 0x3C, 0x15, 0x80, 0xE2, 0x20, 0xA0, 0x34, 0x1C, 0x98, 0x32,
+    0x29, 0xAB, 0x2B, 0x8B, 0xB8, 0x88, 0x32, 0x03, 0x7B, 0x28, 0x30, 0x04,
+    0xF8, 0x02, 0xAE, 0x9B, 0xBF, 0xF8, 0x00, 0xAF, 0xF8, 0x00, 0x5F, 0x1F,
+    0x8F, 0x3A, 0x38, 0x2E, 0x8E, 0x3A, 0x38, 0xD4, 0x01, 0x9B, 0xFF, 0x01,
+    0xBB, 0xD4, 0x9B, 0x7C, 0x00, 0xBC, 0x30, 0x86, 0x9C, 0x7C, 0x00, 0xBC,
+    0xFB, 0x10, 0x30, 0xFC, 0x3A, 0xB3, 0x30, 0xD9, 0x02, 0x45, 0x02, 0x30,
+    0x60, 0x12, 0x61, 0xBE, 0xA2, 0x00, 0xF1, 0x55, 0xA2, 0x4A, 0xFD, 0x65,
+    0xA0, 0xE0, 0xFD, 0x55, 0xA2, 0x58, 0xF3, 0x65, 0xA0, 0xFC, 0xF3, 0x55,
+    0xA0, 0x7E, 0x60, 0x3F, 0xF0, 0x55, 0xA0, 0x84, 0x60, 0x30, 0x61, 0xE0,
+    0xF1, 0x55, 0xA0, 0xD7, 0x61, 0xE6, 0xF1, 0x55, 0xA2, 0x5A, 0xF3, 0x65,
+    0xA1, 0xFA, 0xF3, 0x55, 0x60, 0xFA, 0xA0, 0x18, 0xF0, 0x55, 0x60, 0x06,
+    0xA0, 0x0D, 0xF0, 0x55, 0x60, 0x02, 0xA0, 0x0A, 0xF0, 0x55, 0xA0, 0x03,
+    0xF0, 0x55, 0x02, 0xAC, 0xF8, 0x00};
+const uint16_t VIP_HIRES_PROGRAM_START = 0x2C0;
+const uint16_t VIP_HIRES_CLEAR_CALL    = 0x0230; // 0NNN call to the loader's clear-screen routine
 }
 
 Chip8::Chip8()
@@ -79,9 +104,10 @@ void Chip8::reset(bool resetMemory)
     m_SP = 0;
     memset(m_stack, 0, sizeof(m_stack));
     memset(m_display, 0, sizeof(m_display));
-    m_hiResMode  = false;
-    m_delayTimer = 0;
-    m_soundTimer = 0;
+    m_hiResMode    = false;
+    m_vipHiResMode = false;
+    m_delayTimer   = 0;
+    m_soundTimer   = 0;
     memset(m_keys, 0, sizeof(m_keys));
     m_waitKey = -1;
     m_exited  = false;
@@ -246,6 +272,19 @@ void Chip8::scrollDisplay(int dx, int dy)
     memcpy(m_display, scrolled, sizeof(m_display));
 }
 
+// Switches to the COSMAC VIP 64x64 hires mode if the program starts with the
+// hires loader (see vipHiResLoader), and continues at the program after it.
+bool Chip8::enterVipHiResMode()
+{
+    if (memcmp(m_memory + START_ADDRESS, vipHiResLoader, sizeof(vipHiResLoader)) != 0)
+        return false;
+    m_vipHiResMode = true;
+    m_hiResMode    = false;
+    memset(m_display, 0, sizeof(m_display));
+    m_PC = VIP_HIRES_PROGRAM_START;
+    return true;
+}
+
 // Clears the selected bitplanes.
 void Chip8::clearDisplay()
 {
@@ -270,6 +309,10 @@ Chip8::StepResult Chip8::step()
 
     // fetch
     uint16_t opcode = (m_memory[m_PC] << 8) | m_memory[m_PC + 1];
+
+    // a COSMAC VIP 64x64 hires program starts with a loader of its own
+    if (m_PC == START_ADDRESS && opcode == 0x1260 && enterVipHiResMode())
+        return StepResult::ModeToVipHires;
 
     // decode and execute
     switch (opcode & 0xF000)
@@ -298,13 +341,15 @@ Chip8::StepResult Chip8::step()
                     result   = StepResult::Exited;
                     break;
                 case 0x00FE: // LOW: switch to 64x32 (SUPER-CHIP)
-                    m_hiResMode = false;
+                    m_hiResMode    = false;
+                    m_vipHiResMode = false;
                     memset(m_display, 0, sizeof(m_display));
                     m_PC += 2;
                     result = StepResult::ModeToLow;
                     break;
                 case 0x00FF: // HIGH: switch to 128x64 (SUPER-CHIP)
-                    m_hiResMode = true;
+                    m_hiResMode    = true;
+                    m_vipHiResMode = false;
                     memset(m_display, 0, sizeof(m_display));
                     m_PC += 2;
                     result = StepResult::ModeToHigh;
@@ -337,6 +382,11 @@ Chip8::StepResult Chip8::step()
                     else if ((opcode & 0xFFF0) == 0x00C0) // SCD n: scroll the display down by n pixels (SUPER-CHIP)
                     {
                         scrollDisplay(0, opcode & 0x000F);
+                        result = StepResult::GraphicsChanged;
+                    }
+                    else if (m_vipHiResMode && opcode == VIP_HIRES_CLEAR_CALL) // clear the 64x64 screen (VIP hires)
+                    {
+                        clearDisplay();
                         result = StepResult::GraphicsChanged;
                     }
                     // otherwise SYS addr: call to a COSMAC VIP machine code routine, ignored by interpreters

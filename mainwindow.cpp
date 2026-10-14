@@ -435,8 +435,8 @@ bool MainWindow::loadROMFile(const QString &path, bool showErrors)
     m_romPath = QFileInfo(path).absoluteFilePath();
     m_romData = data;
     m_statusROMLabel->setText(tr("Loaded: %1").arg(QFileInfo(path).fileName()));
-    // loading resets to low resolution, which matters if the previous ROM was in hires
-    showDisplay(m_displayWidget->gridWidth() != m_chip8.displayWidth());
+    // loading resets to low resolution, which matters if the previous ROM was in a hires mode
+    showDisplay(true);
 
     onPause();
     return true;
@@ -556,7 +556,7 @@ void MainWindow::onStop()
         loadROMData(m_chip8, m_romData); // resets the machine and reloads the ROM
     else
         m_chip8.reset(true);
-    showDisplay(m_displayWidget->gridWidth() != m_chip8.displayWidth());
+    showDisplay(true);
 
     updateRunningActions();
 }
@@ -620,7 +620,8 @@ void MainWindow::onEmulationTick()
             Chip8::StepResult result = m_chip8.step();
             if (result == Chip8::StepResult::GraphicsChanged)
                 frameChanged = true;
-            else if (result == Chip8::StepResult::ModeToHigh || result == Chip8::StepResult::ModeToLow)
+            else if (result == Chip8::StepResult::ModeToHigh || result == Chip8::StepResult::ModeToLow
+                     || result == Chip8::StepResult::ModeToVipHires)
                 frameChanged = modeChanged = true;
             if (result == Chip8::StepResult::Exited)
             {
@@ -661,6 +662,7 @@ void MainWindow::handleStepResult(Chip8::StepResult result)
             break;
         case Chip8::StepResult::ModeToHigh:
         case Chip8::StepResult::ModeToLow:
+        case Chip8::StepResult::ModeToVipHires:
             showDisplay(true);
             break;
     }
