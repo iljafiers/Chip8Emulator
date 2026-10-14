@@ -522,7 +522,7 @@ void MainWindow::onAbout()
 
     QMessageBox::about(this, tr("About Chip8 Emulator"),
                        tr("<b>Chip8 Emulator</b> %1<br>"
-                          "A small CHIP-8 interpreter with a Qt Widgets front-end.<br><br>")
+                          "A small CHIP-8 interpreter (C) Ilja Fiers<br><br>")
                                .arg(QApplication::applicationVersion())
                            + tr("Keypad: 1234 / QWER / ASDF / ZXCV maps to the CHIP-8 keys 1-9, A-F.")
                            + "<br><br>" + keypad
