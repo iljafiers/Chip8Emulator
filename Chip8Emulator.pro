@@ -4,14 +4,14 @@ TARGET   = Chip8Emulator
 TEMPLATE = app
 CONFIG   += c++17
 
-VERSION  = 1.0.0
+VERSION  = 1.2.0
 DEFINES  += APP_VERSION=\\\"$$VERSION\\\"
 
 # Windows: .exe icon and the details shown under Properties > Details
 win32 {
     RC_ICONS = icons/app.ico
     QMAKE_TARGET_PRODUCT     = "Chip8 Emulator"
-    QMAKE_TARGET_DESCRIPTION = "CHIP-8 / SUPER-CHIP emulator"
+    QMAKE_TARGET_DESCRIPTION = "CHIP-8 / SUPER-CHIP / XO-CHIP emulator"
     QMAKE_TARGET_COPYRIGHT   = "Copyright (c) 2026 Ilja Fiers"
 }
 
