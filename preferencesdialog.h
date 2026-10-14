@@ -37,6 +37,7 @@ private:
     QCheckBox *m_chkJumpUsesVx;
     QCheckBox *m_chkClipSprites;
     QCheckBox *m_chkVfReset;
+    QCheckBox *m_chkXoChip;
 };
 
 #endif // PREFERENCESDIALOG_H

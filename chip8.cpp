@@ -86,6 +86,11 @@ void Chip8::reset(bool resetMemory)
     m_waitKey = -1;
     m_exited  = false;
 
+    m_planeMask = 1;
+    memset(m_audioPattern, 0, sizeof(m_audioPattern));
+    m_hasAudioPattern = false;
+    m_pitch           = DEFAULT_PITCH;
+
     m_error       = Error::None;
     m_errorOpcode = 0;
     m_errorPC     = 0;
@@ -94,7 +99,7 @@ void Chip8::reset(bool resetMemory)
 bool Chip8::loadROM(const uint8_t *data, size_t size)
 {
     // check before resetting, so a rejected ROM leaves the current one intact
-    if (size > static_cast<size_t>(MEM_SIZE - START_ADDRESS))
+    if (size > static_cast<size_t>(memorySize() - START_ADDRESS))
         return false;
 
     reset(true);
@@ -149,59 +154,82 @@ std::string Chip8::errorString() const
     return "Unknown error";
 }
 
+// Skips the instruction after the current one. F000 NNNN (XO-CHIP) is 4 bytes
+// long, so skipping it means skipping 4 bytes instead of 2.
+void Chip8::skipNextInstruction()
+{
+    uint16_t next = (memoryAt(m_PC + 2) << 8) | memoryAt(m_PC + 3);
+    m_PC += (m_quirks.xoChip && next == 0xF000) ? 6 : 4;
+}
+
 // Draws an 8 pixel wide sprite (1 byte per row) or, for DXY0, a 16 pixel wide
-// one (2 bytes per row) at the current resolution.
+// one (2 bytes per row) at the current resolution, into each selected bitplane.
+// With both planes selected (XO-CHIP), plane 1 takes the first block of sprite
+// data and plane 2 the block right after it.
 bool Chip8::writeSpriteToDisplay(uint8_t x, uint8_t y, uint8_t height, uint8_t spriteWidth, uint16_t iReg)
 {
-    const int width       = displayWidth();
-    const int heightPx    = displayHeight();
-    const int bytesPerRow = spriteWidth / 8;
-    bool      collision   = false;
+    const int     width       = displayWidth();
+    const int     heightPx    = displayHeight();
+    const int     bytesPerRow = spriteWidth / 8;
+    const uint8_t planes      = activePlanes();
+    uint32_t      addr        = iReg;
+    bool          collision   = false;
 
-    for (uint8_t row = 0; row < height; ++row)
+    for (uint8_t planeBit = 1; planeBit <= 2; planeBit <<= 1)
     {
-        uint16_t rowAddr    = iReg + row * bytesPerRow;
-        uint16_t spriteBits = m_memory[rowAddr & ADDR_MASK];
-        if (bytesPerRow == 2)
-            spriteBits = (spriteBits << 8) | m_memory[(rowAddr + 1) & ADDR_MASK];
-        int py = y + row;
+        if (!(planes & planeBit))
+            continue;
 
-        if (py >= heightPx)
+        for (uint8_t row = 0; row < height; ++row)
         {
-            if (m_quirks.clipSprites)
-                continue;
-            py %= heightPx;
-        }
+            uint32_t rowAddr    = addr + row * bytesPerRow;
+            uint16_t spriteBits = memoryAt(rowAddr);
+            if (bytesPerRow == 2)
+                spriteBits = (spriteBits << 8) | memoryAt(rowAddr + 1);
+            int py = y + row;
 
-        for (uint8_t col = 0; col < spriteWidth; ++col)
-        {
-            if (!(spriteBits & (1u << (spriteWidth - 1 - col))))
-                continue;
-
-            int px = x + col;
-            if (px >= width)
+            if (py >= heightPx)
             {
                 if (m_quirks.clipSprites)
                     continue;
-                px %= width;
+                py %= heightPx;
             }
 
-            int idx = py * width + px;
-            if (m_display[idx])
-                collision = true;
-            m_display[idx] ^= 1;
+            for (uint8_t col = 0; col < spriteWidth; ++col)
+            {
+                if (!(spriteBits & (1u << (spriteWidth - 1 - col))))
+                    continue;
+
+                int px = x + col;
+                if (px >= width)
+                {
+                    if (m_quirks.clipSprites)
+                        continue;
+                    px %= width;
+                }
+
+                int idx = py * width + px;
+                if (m_display[idx] & planeBit)
+                    collision = true;
+                m_display[idx] ^= planeBit;
+            }
         }
+        addr += height * bytesPerRow;
     }
     return collision;
 }
 
-// Shifts the display contents by dx/dy pixels (at the current resolution);
-// pixels shifted in from the edge are cleared.
+// Shifts the selected bitplanes by dx/dy pixels (at the current resolution);
+// pixels shifted in from the edge are cleared. Other planes stay put.
 void Chip8::scrollDisplay(int dx, int dy)
 {
-    const int width                       = displayWidth();
-    const int height                      = displayHeight();
-    uint8_t   scrolled[sizeof(m_display)] = {};
+    const int     width  = displayWidth();
+    const int     height = displayHeight();
+    const uint8_t planes = activePlanes();
+    uint8_t       scrolled[sizeof(m_display)];
+
+    for (size_t i = 0; i < sizeof(m_display); ++i)
+        scrolled[i] = m_display[i] & ~planes;
 
     for (int y = 0; y < height; ++y)
     {
@@ -212,10 +240,18 @@ void Chip8::scrollDisplay(int dx, int dy)
         {
             int srcX = x - dx;
             if (srcX >= 0 && srcX < width)
-                scrolled[y * width + x] = m_display[srcY * width + srcX];
+                scrolled[y * width + x] |= m_display[srcY * width + srcX] & planes;
         }
     }
     memcpy(m_display, scrolled, sizeof(m_display));
+}
+
+// Clears the selected bitplanes.
+void Chip8::clearDisplay()
+{
+    const uint8_t planes = activePlanes();
+    for (uint8_t &pixel : m_display)
+        pixel &= ~planes;
 }
 
 Chip8::StepResult Chip8::step()
@@ -226,7 +262,7 @@ Chip8::StepResult Chip8::step()
     if (m_exited)
         return StepResult::Exited;
 
-    if (m_PC < 0x200 || m_PC >= MEM_SIZE - 1)
+    if (m_PC < 0x200 || m_PC >= memorySize() - 1)
     {
         setError(Error::PCOutOfBounds, 0, m_PC);
         return result;
@@ -241,8 +277,8 @@ Chip8::StepResult Chip8::step()
         case 0x0000:
             switch (opcode)
             {
-                case 0x00E0: // CLS: Clear the display
-                    memset(m_display, 0, sizeof(m_display));
+                case 0x00E0: // CLS: Clear the display (the selected bitplanes with XO-CHIP)
+                    clearDisplay();
                     m_PC += 2;
                     result = StepResult::GraphicsChanged;
                     break;
@@ -288,12 +324,17 @@ Chip8::StepResult Chip8::step()
                     setError(Error::InvalidOpcode, opcode, m_PC);
                     break;
                 default:
-                    if ((opcode & 0xFFF0) == 0x00D0) // 00DN: XO-CHIP scroll up, not supported
+                    if ((opcode & 0xFFF0) == 0x00D0) // SCU n: scroll the display up by n pixels (XO-CHIP)
                     {
-                        setError(Error::InvalidOpcode, opcode, m_PC);
-                        break;
+                        if (!m_quirks.xoChip)
+                        {
+                            setError(Error::InvalidOpcode, opcode, m_PC);
+                            break;
+                        }
+                        scrollDisplay(0, -(opcode & 0x000F));
+                        result = StepResult::GraphicsChanged;
                     }
-                    if ((opcode & 0xFFF0) == 0x00C0) // SCD n: scroll the display down by n pixels (SUPER-CHIP)
+                    else if ((opcode & 0xFFF0) == 0x00C0) // SCD n: scroll the display down by n pixels (SUPER-CHIP)
                     {
                         scrollDisplay(0, opcode & 0x000F);
                         result = StepResult::GraphicsChanged;
@@ -321,24 +362,57 @@ Chip8::StepResult Chip8::step()
             break;
         case 0x3000: // SE Vx, byte: Skip next instruction if Vx = kk
             if (m_V[(opcode & 0x0F00) >> 8] == (opcode & 0x00FF))
-                m_PC += 4; // skip next instruction
+                skipNextInstruction();
             else
                 m_PC += 2;
             break;
         case 0x4000: // SNE Vx, byte: Skip next instruction if Vx != kk
             if (m_V[(opcode & 0x0F00) >> 8] != (opcode & 0x00FF))
-                m_PC += 4; // skip next instruction
+                skipNextInstruction();
             else
                 m_PC += 2;
             break;
-        case 0x5000:                    // SE Vx, Vy: Skip next instruction if Vx = Vy
-            if ((opcode & 0x000F) != 0) // 5XY1-5XYF don't exist (5XY2/5XY3 are XO-CHIP)
-                setError(Error::InvalidOpcode, opcode, m_PC);
-            else if (m_V[(opcode & 0x0F00) >> 8] == m_V[(opcode & 0x00F0) >> 4])
-                m_PC += 4; // skip next instruction
-            else
-                m_PC += 2;
-            break;
+        case 0x5000:
+        {
+            uint8_t x = (opcode & 0x0F00) >> 8;
+            uint8_t y = (opcode & 0x00F0) >> 4;
+            switch (opcode & 0x000F)
+            {
+                case 0x0: // SE Vx, Vy: Skip next instruction if Vx = Vy
+                    if (m_V[x] == m_V[y])
+                        skipNextInstruction();
+                    else
+                        m_PC += 2;
+                    break;
+                case 0x2: // SAVE Vx-Vy: Store Vx through Vy at I, I unchanged (XO-CHIP)
+                case 0x3: // LOAD Vx-Vy: Read Vx through Vy from I, I unchanged (XO-CHIP)
+                {
+                    if (!m_quirks.xoChip)
+                    {
+                        setError(Error::InvalidOpcode, opcode, m_PC);
+                        break;
+                    }
+                    // the range may run backwards (x > y); memory is always filled upwards from I
+                    const int count = (x <= y ? y - x : x - y) + 1;
+                    const int dir   = x <= y ? 1 : -1;
+                    for (int i = 0; i < count; ++i)
+                    {
+                        uint8_t &reg = m_V[x + i * dir];
+                        uint8_t &mem = m_memory[(m_I + i) & addrMask()];
+                        if ((opcode & 0x000F) == 0x2)
+                            mem = reg;
+                        else
+                            reg = mem;
+                    }
+                    m_PC += 2;
+                }
+                break;
+                default: // the other 5XYN don't exist
+                    setError(Error::InvalidOpcode, opcode, m_PC);
+                    break;
+            }
+        }
+        break;
         case 0x6000: // LD Vx, byte: Set Vx = kk
             m_V[(opcode & 0x0F00) >> 8] = opcode & 0x00FF;
             m_PC += 2;
@@ -431,7 +505,7 @@ Chip8::StepResult Chip8::step()
             if ((opcode & 0x000F) != 0) // 9XY1-9XYF don't exist
                 setError(Error::InvalidOpcode, opcode, m_PC);
             else if (m_V[(opcode & 0x0F00) >> 8] != m_V[(opcode & 0x00F0) >> 4])
-                m_PC += 4; // skip next instruction
+                skipNextInstruction();
             else
                 m_PC += 2;
             break;
@@ -476,7 +550,7 @@ Chip8::StepResult Chip8::step()
                     // Check if the key corresponding to Vx is pressed
                     // If pressed, skip the next instruction
                     if (isKeyPressed(m_V[(opcode & 0x0F00) >> 8]))
-                        m_PC += 4; // skip next instruction
+                        skipNextInstruction();
                     else
                         m_PC += 2;
                     break;
@@ -484,7 +558,7 @@ Chip8::StepResult Chip8::step()
                     // Check if the key corresponding to Vx is not pressed
                     // If not pressed, skip the next instruction
                     if (!isKeyPressed(m_V[(opcode & 0x0F00) >> 8]))
-                        m_PC += 4; // skip next instruction
+                        skipNextInstruction();
                     else
                         m_PC += 2;
                     break;
@@ -496,6 +570,44 @@ Chip8::StepResult Chip8::step()
         case 0xF000: // Miscellaneous and timer operations
             switch (opcode & 0x00FF)
             {
+                case 0x00: // LD I, NNNN: Set I = the 16-bit word after this instruction (XO-CHIP F000 NNNN)
+                    if (!m_quirks.xoChip || opcode != 0xF000)
+                    {
+                        setError(Error::InvalidOpcode, opcode, m_PC);
+                        break;
+                    }
+                    m_I = (memoryAt(m_PC + 2) << 8) | memoryAt(m_PC + 3);
+                    m_PC += 4; // a 4-byte instruction
+                    break;
+                case 0x01: // PLANE n: Select the bitplanes (0-3) to draw, clear and scroll (XO-CHIP FN01)
+                    if (!m_quirks.xoChip || (opcode & 0x0F00) > 0x0300)
+                    {
+                        setError(Error::InvalidOpcode, opcode, m_PC);
+                        break;
+                    }
+                    m_planeMask = (opcode & 0x0F00) >> 8;
+                    m_PC += 2;
+                    break;
+                case 0x02: // AUDIO: Load the 16-byte audio pattern from I (XO-CHIP F002)
+                    if (!m_quirks.xoChip || opcode != 0xF002)
+                    {
+                        setError(Error::InvalidOpcode, opcode, m_PC);
+                        break;
+                    }
+                    for (int i = 0; i < AUDIO_PATTERN_SIZE; ++i)
+                        m_audioPattern[i] = memoryAt(m_I + i);
+                    m_hasAudioPattern = true;
+                    m_PC += 2;
+                    break;
+                case 0x3A: // PITCH Vx: Set the audio pattern playback rate (XO-CHIP)
+                    if (!m_quirks.xoChip)
+                    {
+                        setError(Error::InvalidOpcode, opcode, m_PC);
+                        break;
+                    }
+                    m_pitch = m_V[(opcode & 0x0F00) >> 8];
+                    m_PC += 2;
+                    break;
                 case 0x07: // LD Vx, DT: Set Vx = delay timer value
                     m_V[(opcode & 0x0F00) >> 8] = m_delayTimer;
                     m_PC += 2;
@@ -551,10 +663,10 @@ Chip8::StepResult Chip8::step()
                     break;
                 case 0x33: // LD B, Vx: Store BCD representation of Vx in memory locations I, I+1, and I+2
                 {
-                    uint8_t value                   = m_V[(opcode & 0x0F00) >> 8];
-                    m_memory[m_I & ADDR_MASK]       = value / 100;       // Hundreds place
-                    m_memory[(m_I + 1) & ADDR_MASK] = (value / 10) % 10; // Tens place
-                    m_memory[(m_I + 2) & ADDR_MASK] = value % 10;        // Ones place
+                    uint8_t value                    = m_V[(opcode & 0x0F00) >> 8];
+                    m_memory[m_I & addrMask()]       = value / 100;       // Hundreds place
+                    m_memory[(m_I + 1) & addrMask()] = (value / 10) % 10; // Tens place
+                    m_memory[(m_I + 2) & addrMask()] = value % 10;        // Ones place
                     m_PC += 2;
                 }
                 break;
@@ -562,7 +674,7 @@ Chip8::StepResult Chip8::step()
                 {
                     uint8_t x = (opcode & 0x0F00) >> 8;
                     for (uint8_t i = 0; i <= x; ++i)
-                        m_memory[(m_I + i) & ADDR_MASK] = m_V[i];
+                        m_memory[(m_I + i) & addrMask()] = m_V[i];
                     if (m_quirks.loadStoreIncrementsI)
                         m_I += x + 1;
                     m_PC += 2;
@@ -572,7 +684,7 @@ Chip8::StepResult Chip8::step()
                 {
                     uint8_t x = (opcode & 0x0F00) >> 8;
                     for (uint8_t i = 0; i <= x; ++i)
-                        m_V[i] = m_memory[(m_I + i) & ADDR_MASK];
+                        m_V[i] = m_memory[(m_I + i) & addrMask()];
                     if (m_quirks.loadStoreIncrementsI)
                         m_I += x + 1;
                     m_PC += 2;

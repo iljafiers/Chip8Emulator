@@ -6,9 +6,9 @@
 #include <cstdint>
 #include <string>
 
-// Core CHIP-8 / SUPER-CHIP interpreter: memory, registers, the instruction
-// set, the 64x32 and 128x64 displays, error reporting and the behaviour
-// "quirks" that differ between classic CHIP-8 and later interpreters.
+// Core CHIP-8 / SUPER-CHIP / XO-CHIP interpreter: memory, registers, the
+// instruction set, the 64x32 and 128x64 displays, error reporting and the
+// behaviour "quirks" that differ between classic CHIP-8 and later interpreters.
 // Has no GUI dependencies; the front-end drives it one instruction at a time.
 //
 // Naming: CHIP-8 terms keep their documentation spelling (PC, I, V, SP, ROM),
@@ -17,13 +17,15 @@
 class Chip8
 {
 public:
-    static const int MEM_SIZE      = 4096;
-    static const int LORES_WIDTH   = 64; // low resolution (CHIP-8)
-    static const int LORES_HEIGHT  = 32;
-    static const int HIRES_WIDTH   = 128; // high resolution (SUPER-CHIP 00FF)
-    static const int HIRES_HEIGHT  = 64;
-    static const int START_ADDRESS = 0x200;
-    static const int ADDR_MASK     = MEM_SIZE - 1; // wrap memory accesses to 12 bits
+    static const int MEM_SIZE           = 4096;  // CHIP-8 / SUPER-CHIP
+    static const int XO_MEM_SIZE        = 65536; // XO-CHIP
+    static const int LORES_WIDTH        = 64;    // low resolution (CHIP-8)
+    static const int LORES_HEIGHT       = 32;
+    static const int HIRES_WIDTH        = 128; // high resolution (SUPER-CHIP 00FF)
+    static const int HIRES_HEIGHT       = 64;
+    static const int START_ADDRESS      = 0x200;
+    static const int AUDIO_PATTERN_SIZE = 16; // XO-CHIP F002: 128 one-bit samples
+    static const int DEFAULT_PITCH      = 64; // XO-CHIP FX3A: plays the pattern at 4000 Hz
 
     enum class Error
     {
@@ -41,6 +43,9 @@ public:
         bool jumpUsesVx           = false; // BNNN uses Vx (per high nibble) instead of V0 (Super-CHIP behavior)
         bool clipSprites          = true;  // sprites are clipped at the screen edge instead of wrapping
         bool vfReset              = true;  // 8XY1/8XY2/8XY3 set VF to 0 (COSMAC VIP behavior)
+        // XO-CHIP extensions: 64 KB of memory, 5XY2/5XY3, F000 NNNN, FN01 bitplanes,
+        // F002/FX3A audio and 00DN. Off, these opcodes are invalid as on a real CHIP-8.
+        bool xoChip = false;
 
         // Presets. The defaults above are the original COSMAC VIP behavior.
         static Quirks cosmacVip() { return Quirks(); }
@@ -52,6 +57,17 @@ public:
             q.jumpUsesVx           = true;
             q.clipSprites          = true;
             q.vfReset              = false;
+            return q;
+        }
+        static Quirks xoChipPreset() // XO-CHIP as defined by Octo, e.g. the Octojam games
+        {
+            Quirks q;
+            q.shiftUsesVxOnly      = false;
+            q.loadStoreIncrementsI = true;
+            q.jumpUsesVx           = false;
+            q.clipSprites          = false;
+            q.vfReset              = false;
+            q.xoChip               = true;
             return q;
         }
     };
@@ -90,6 +106,8 @@ public:
     uint16_t    errorOpcode() const { return m_errorOpcode; }
 
     // The buffer holds displayWidth() x displayHeight() pixels, one byte each, row by row.
+    // Bit 0 of a pixel is bitplane 1 and bit 1 is bitplane 2 (XO-CHIP), so pixels
+    // are 0-3; without XO-CHIP only plane 1 is drawn and pixels are 0 or 1.
     const uint8_t *displayBuffer() const { return m_display; }
     bool           isHiResMode() const { return m_hiResMode; }
     int            displayWidth() const { return m_hiResMode ? HIRES_WIDTH : LORES_WIDTH; }
@@ -97,6 +115,17 @@ public:
 
     void   setQuirks(const Quirks &q) { m_quirks = q; }
     Quirks quirks() const { return m_quirks; }
+
+    // Addressable memory: 4 KB, or 64 KB with XO-CHIP.
+    int memorySize() const { return m_quirks.xoChip ? XO_MEM_SIZE : MEM_SIZE; }
+
+    // XO-CHIP audio: the sound timer plays this 128-bit pattern on a loop at
+    // 4000 * 2^((pitch - 64) / 48) samples per second. hasAudioPattern() is false
+    // until F002 runs, so the front-end can play the classic beep instead.
+    const uint8_t *audioPattern() const { return m_audioPattern; }
+    bool           hasAudioPattern() const { return m_hasAudioPattern; }
+    uint8_t        pitch() const { return m_pitch; }
+    uint8_t        planeMask() const { return m_planeMask; }
 
     // CPU state, named as in the CHIP-8 documentation
     uint16_t PC() const { return m_PC; }
@@ -111,7 +140,7 @@ public:
     uint8_t soundTimer() const { return m_soundTimer; }
 
 private:
-    uint8_t  m_memory[MEM_SIZE];
+    uint8_t  m_memory[XO_MEM_SIZE]; // sized for XO-CHIP; CHIP-8 uses the first 4 KB
     uint8_t  m_V[16];
     uint16_t m_I;
     uint16_t m_PC;
@@ -125,6 +154,10 @@ private:
     bool     m_keys[16];
     int8_t   m_waitKey; // FX0A: key pressed while waiting, -1 if none yet
     bool     m_exited;  // 00FD was executed
+    uint8_t  m_planeMask;                         // XO-CHIP FN01: bitplanes drawn, cleared and scrolled
+    uint8_t  m_audioPattern[AUDIO_PATTERN_SIZE]; // XO-CHIP F002
+    bool     m_hasAudioPattern;
+    uint8_t  m_pitch; // XO-CHIP FX3A
 
     Error    m_error;
     uint16_t m_errorOpcode;
@@ -132,9 +165,18 @@ private:
 
     Quirks m_quirks;
 
+    // Wraps memory accesses to the memory size (12 bits, or 16 with XO-CHIP).
+    uint16_t addrMask() const { return static_cast<uint16_t>(memorySize() - 1); }
+    uint8_t  memoryAt(uint32_t addr) const { return m_memory[addr & addrMask()]; }
+    // Pixel bits affected by drawing, clearing and scrolling: always plane 1
+    // without XO-CHIP.
+    uint8_t activePlanes() const { return m_quirks.xoChip ? m_planeMask : 1; }
+
     void setError(Error e, uint16_t opcode, uint16_t pc);
+    void skipNextInstruction();
     bool writeSpriteToDisplay(uint8_t x, uint8_t y, uint8_t height, uint8_t spriteWidth, uint16_t iReg);
     void scrollDisplay(int dx, int dy);
+    void clearDisplay();
 };
 
 #endif // CHIP8_H

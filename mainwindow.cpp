@@ -327,6 +327,7 @@ void MainWindow::loadSettings()
     m_quirks.jumpUsesVx           = settings.value("jumpUsesVx", defaults.jumpUsesVx).toBool();
     m_quirks.clipSprites          = settings.value("clipSprites", defaults.clipSprites).toBool();
     m_quirks.vfReset              = settings.value("vfReset", defaults.vfReset).toBool();
+    m_quirks.xoChip               = settings.value("xoChip", defaults.xoChip).toBool();
     settings.endGroup();
 }
 
@@ -344,6 +345,7 @@ void MainWindow::saveSettings() const
     settings.setValue("jumpUsesVx", m_quirks.jumpUsesVx);
     settings.setValue("clipSprites", m_quirks.clipSprites);
     settings.setValue("vfReset", m_quirks.vfReset);
+    settings.setValue("xoChip", m_quirks.xoChip);
     settings.endGroup();
 }
 
@@ -421,8 +423,12 @@ bool MainWindow::loadROMFile(const QString &path, bool showErrors)
     if (!loadROMData(m_chip8, data))
     {
         if (showErrors)
-            QMessageBox::warning(this, tr("Load ROM"),
-                                 tr("ROM is too large to fit in memory."));
+        {
+            QString message = tr("ROM is too large to fit in memory.");
+            if (!m_quirks.xoChip && data.size() <= Chip8::XO_MEM_SIZE - Chip8::START_ADDRESS)
+                message += "\n" + tr("If this is an XO-CHIP game, enable XO-CHIP in the preferences.");
+            QMessageBox::warning(this, tr("Load ROM"), message);
+        }
         return false;
     }
 

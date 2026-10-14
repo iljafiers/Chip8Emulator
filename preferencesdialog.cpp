@@ -51,6 +51,8 @@ PreferencesDialog::PreferencesDialog(QWidget *parent)
         tr("Clip sprites at screen edge instead of wrapping"), quirksBox);
     m_chkVfReset = new QCheckBox(
         tr("8XY1/8XY2/8XY3 reset VF to 0 (COSMAC VIP behavior)"), quirksBox);
+    m_chkXoChip = new QCheckBox(
+        tr("XO-CHIP extensions (64 KB memory, bitplanes, audio patterns)"), quirksBox);
 
     QVBoxLayout *quirksLayout = new QVBoxLayout;
     quirksLayout->addWidget(m_chkShiftVxOnly);
@@ -58,25 +60,33 @@ PreferencesDialog::PreferencesDialog(QWidget *parent)
     quirksLayout->addWidget(m_chkJumpUsesVx);
     quirksLayout->addWidget(m_chkClipSprites);
     quirksLayout->addWidget(m_chkVfReset);
+    quirksLayout->addWidget(m_chkXoChip);
 
     // presets set all checkboxes at once
     QPushButton *btnPresetVip   = new QPushButton(tr("CHIP-8 (COSMAC VIP)"), quirksBox);
     QPushButton *btnPresetSchip = new QPushButton(tr("CHIP-48 / SUPER-CHIP"), quirksBox);
+    QPushButton *btnPresetXo    = new QPushButton(tr("XO-CHIP"), quirksBox);
     btnPresetVip->setAutoDefault(false);
     btnPresetSchip->setAutoDefault(false);
+    btnPresetXo->setAutoDefault(false);
     btnPresetVip->setToolTip(tr("Original 1977 interpreter; most early games such as Animal Race"));
     btnPresetSchip->setToolTip(tr("HP48 interpreters; most 1990s games such as Space Invaders"));
+    btnPresetXo->setToolTip(tr("Octo's extended CHIP-8; games from the Octojam game jams"));
     connect(btnPresetVip, &QPushButton::clicked, this, [this]() {
         setQuirks(Chip8::Quirks::cosmacVip());
     });
     connect(btnPresetSchip, &QPushButton::clicked, this, [this]() {
         setQuirks(Chip8::Quirks::superChip());
     });
+    connect(btnPresetXo, &QPushButton::clicked, this, [this]() {
+        setQuirks(Chip8::Quirks::xoChipPreset());
+    });
 
     QHBoxLayout *presetLayout = new QHBoxLayout;
     presetLayout->addWidget(new QLabel(tr("Presets:"), quirksBox));
     presetLayout->addWidget(btnPresetVip);
     presetLayout->addWidget(btnPresetSchip);
+    presetLayout->addWidget(btnPresetXo);
     presetLayout->addStretch();
     quirksLayout->addLayout(presetLayout);
     quirksBox->setLayout(quirksLayout);
@@ -136,6 +146,7 @@ void PreferencesDialog::setQuirks(const Chip8::Quirks &quirks)
     m_chkJumpUsesVx->setChecked(quirks.jumpUsesVx);
     m_chkClipSprites->setChecked(quirks.clipSprites);
     m_chkVfReset->setChecked(quirks.vfReset);
+    m_chkXoChip->setChecked(quirks.xoChip);
 }
 
 Chip8::Quirks PreferencesDialog::quirks() const
@@ -146,5 +157,6 @@ Chip8::Quirks PreferencesDialog::quirks() const
     q.jumpUsesVx           = m_chkJumpUsesVx->isChecked();
     q.clipSprites          = m_chkClipSprites->isChecked();
     q.vfReset              = m_chkVfReset->isChecked();
+    q.xoChip               = m_chkXoChip->isChecked();
     return q;
 }
