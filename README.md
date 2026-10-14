@@ -2,6 +2,8 @@
 
 A CHIP-8 interpreter with a Qt 6 Widgets front-end. It runs classic 64×32 CHIP-8 programs, COSMAC VIP 64×64 hires programs, SUPER-CHIP programs including the 128×64 high-resolution mode, and XO-CHIP programs with 64 KB of memory, four colours and audio patterns. It also has selectable compatibility quirks, sound, and a step-by-step debug mode.
 
+![Space Invaders by David Winter, paused in the emulator on Windows 11](Chip8_Invaders.png)
+
 ## Download
 
 Ready-made builds are on the [Releases page](https://github.com/iljafiers/Chip8Emulator/releases).
