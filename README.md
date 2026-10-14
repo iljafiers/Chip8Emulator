@@ -1,6 +1,6 @@
 # Chip8 Emulator
 
-A CHIP-8 interpreter with a Qt 6 Widgets front-end. It runs classic 64×32 CHIP-8 programs and SUPER-CHIP programs, including the 128×64 high-resolution mode. It also has selectable compatibility quirks, sound, and a step-by-step debug mode.
+A CHIP-8 interpreter with a Qt 6 Widgets front-end. It runs classic 64×32 CHIP-8 programs, SUPER-CHIP programs including the 128×64 high-resolution mode, and XO-CHIP programs with 64 KB of memory, four colours and audio patterns. It also has selectable compatibility quirks, sound, and a step-by-step debug mode.
 
 ## Download
 
@@ -16,7 +16,7 @@ On Linux, build it from source (see [Building](#building)).
 ### Installing on macOS
 
 > [!WARNING]
-> **The macOS build is not signed with an Apple Developer ID and is not notarized by Apple.** I don't have a paid Apple Developer account. The app only carries an *ad-hoc* signature, which lets it run on Apple Silicon but doesn't tell macOS who made it.
+> **The macOS build is not signed with an Apple Developer ID and is not notarized by Apple.** The app only carries an *ad-hoc* signature, which lets it run on Apple Silicon but doesn't tell macOS who made it.
 >
 > Because of that, macOS blocks the app the first time you open it, with a message like *"Chip8 Emulator" Not Opened* or *Apple could not verify "Chip8 Emulator" is free of malware*. This is expected for any unsigned app downloaded from the internet; it does not mean the file is damaged.
 >
@@ -121,7 +121,7 @@ On Windows and macOS, keys are matched by physical position (scan code or virtua
 | `chip8.h/.cpp` | `Chip8`: the interpreter core, in plain C++17 with no Qt dependency, so it can be reused outside this GUI. Random numbers come from `rand()`, seeded once from the clock. |
 | `mainwindow.h/.cpp` | `MainWindow`: menus, toolbar, status bar, keyboard input, timing, settings, error reporting |
 | `displaywidget.h/.cpp` | `DisplayWidget`: draws the frame buffer (64×32 or 128×64), scaled and centred, in the selected colour theme |
-| `beeper.h/.cpp` | `Beeper` and `SquareWaveGenerator`: the 440 Hz buzzer tone |
+| `beeper.h/.cpp` | `Beeper` and `ToneGenerator`: the 440 Hz buzzer tone, or an XO-CHIP audio pattern |
 | `preferencesdialog.h/.cpp` | `PreferencesDialog`: speed, sound, display theme and quirk settings |
 | `main.cpp` | Creates the application and the main window |
 | `icons/`, `resources.qrc` | Toolbar icons, at 24 px and at 48 px (`@2x`) for high-DPI screens |
@@ -132,12 +132,13 @@ The machine state is held directly in the class:
 
 | State | Details |
 |---|---|
-| Memory | 4 KB. The small font sits at `0x000` and the large SUPER-CHIP font at `0x050`; ROMs are loaded at `0x200`. |
-| Registers | V0–VF, plus the 12-bit index register I |
+| Memory | 4 KB, or 64 KB with XO-CHIP. The small font sits at `0x000` and the large SUPER-CHIP font at `0x050`; ROMs are loaded at `0x200`. |
+| Registers | V0–VF, plus the index register I (12 bits, or 16 with XO-CHIP) |
 | Program counter | PC |
 | Stack | 16 entries, with stack pointer SP |
 | Timers | Delay and sound timers |
-| Display | One byte per pixel. 64×32, or 128×64 while `m_hiResMode` is set |
+| Display | One byte per pixel. 64×32, or 128×64 while `m_hiResMode` is set. Bit 0 is bitplane 1 and bit 1 is bitplane 2 (XO-CHIP), so a pixel is 0–3. |
+| Audio | The XO-CHIP audio pattern (16 bytes) and pitch |
 | Keys | The state of the 16 keypad keys |
 
 **Naming.** CHIP-8 terms keep their documentation spelling (`PC`, `I`, `V`, `SP`, `ROM`), so the getters are `PC()`, `I()`, `V(x)` and `SP()`, and functions are named `loadROM()` and so on. Everything else follows Qt style: camelCase, no `get` prefix, `is`/`has` for booleans. Member variables carry an `m_` prefix (`m_PC`, `m_V[x]`, `m_delayTimer`), and constants are `SCREAMING_SNAKE_CASE`.
@@ -153,10 +154,12 @@ Main operations:
 | `hasError()`, `errorString()`, `error()`, `errorPC()`, `errorOpcode()` | Report errors. `errorString()` returns a `std::string`. |
 | `PC()`, `I()`, `SP()`, `V(x)`, `delayTimer()`, `soundTimer()` | Read-only access to the CPU state, for the status bar and the error popup. |
 | `displayBuffer()`, `displayWidth()`, `displayHeight()`, `isHiResMode()` | The frame buffer and its current resolution. |
+| `audioPattern()`, `hasAudioPattern()`, `pitch()` | The XO-CHIP audio pattern and its playback pitch. `hasAudioPattern()` stays false until `F002` runs, so the front-end plays the classic beep until then. |
+| `memorySize()` | 4096, or 65536 with XO-CHIP. |
 
 Implementation notes:
 - **FX0A (wait for key)** behaves like the COSMAC VIP: it waits for a key to be pressed *and released*. Until then, the instruction re-executes because PC is not advanced.
-- **Memory access through I** wraps at 12 bits (`ADDR_MASK`), so a sprite or `FX55` near the end of memory never reads or writes outside the array.
+- **Memory access through I** wraps at the memory size (12 bits, or 16 with XO-CHIP, see `addrMask()`), so a sprite or `FX55` near the end of memory never reads or writes outside the array.
 - **Stack overflow** is not fatal. When the stack is full, a `CALL` drops the oldest return address. Some ROMs (for example Space Invaders) leave subroutines with a jump instead of `RET`, and would otherwise stop after a number of games. A `RET` with an empty stack is still reported as an error (`Error::StackUnderflow`).
 - **`0NNN` (machine-code call)** is ignored, as in most interpreters. `0000` is treated as an invalid opcode, because it usually means the program ran into empty memory.
 
@@ -188,12 +191,28 @@ These SUPER-CHIP details follow Octo, the de-facto modern reference:
 - The large font includes A–F.
 - A collision sets VF to 1, not to the number of colliding rows as on the original HP48.
 
+### XO-CHIP instructions
+
+XO-CHIP is the extension of SUPER-CHIP defined by Octo. These instructions only work with the `xoChip` quirk on; without it they are invalid opcodes, as on a real CHIP-8.
+
+| Opcode | What it does |
+|---|---|
+| `F000 NNNN` | Set I to the 16-bit address NNNN. This is the only 4-byte instruction, so the skip instructions (`3XNN`, `4XNN`, `5XY0`, `9XY0`, `EX9E`, `EXA1`) skip 4 bytes when the next instruction is `F000`. |
+| `5XY2` / `5XY3` | Save VX..VY to, or load them from, memory at I. I is unchanged, and the range may run backwards (X > Y). |
+| `FN01` | Select the bitplanes (N = 0–3) that drawing, `00E0` and the scroll instructions affect. The default is plane 1. |
+| `DXYN` | With both planes selected, draws the sprite into plane 1 and then reads the next N bytes (or 32 bytes for `DXY0`) for plane 2. A collision in either plane sets VF. |
+| `00DN` | Scroll the selected planes up N pixels |
+| `F002` | Load a 16-byte audio pattern from I |
+| `FX3A` | Set the audio pitch to VX. The pattern plays at 4000 × 2^((VX − 64) / 48) bits per second, so the default pitch of 64 plays 4000 bits per second. |
+
+`00FE` and `00FF` clear both planes.
+
 ### Errors
 
 Execution stops when the interpreter hits:
 - an invalid opcode,
 - a `RET` with an empty stack (stack underflow), or
-- a program counter outside `0x200`–`0xFFE`.
+- a program counter outside `0x200`–`0xFFE` (`0x200`–`0xFFFE` with XO-CHIP).
 
 `MainWindow` then stops the timer and the sound, shows the error in the status bar, and opens a popup. The popup shows the error type, the PC and opcode where it happened, SP, I, and V0–VF (in decimal).
 
@@ -208,12 +227,14 @@ CHIP-8 interpreters differ in a few details, and games depend on them. `Chip8::Q
 | `jumpUsesVx` | `BNNN` adds Vx (X = high nibble of NNN) | `BNNN` adds V0 (VIP) |
 | `clipSprites` | Sprites are clipped at the screen edge | Sprites wrap around |
 | `vfReset` | `8XY1/2/3` clear VF (VIP) | VF is unchanged |
+| `xoChip` | XO-CHIP: 64 KB of memory and the XO-CHIP instructions | CHIP-8 / SUPER-CHIP only |
 
-The preferences dialog has two presets:
+The preferences dialog has three presets:
 - **COSMAC VIP**: the original 1977 behaviour, needed by most early games.
 - **CHIP-48 / SUPER-CHIP**: needed by most 1990s games.
+- **XO-CHIP**: Octo's defaults, for XO-CHIP games such as most recent Octojam entries. Sprites wrap, `FX55`/`FX65` advance I, and VF isn't reset.
 
-A game that fails with one preset often runs with the other.
+A game that fails with one preset often runs with another.
 
 ### Timing
 
@@ -221,22 +242,25 @@ Everything is driven by one 60 Hz tick, `MainWindow::onEmulationTick()`. Each ti
 
 1. **Decrements the timers.** The delay and sound timers count down once.
 2. **Runs instructions.** It runs `m_instructionsPerSecond / 60` instructions. `m_instructionAllotment` carries the remainder over to the next tick, so speeds that aren't multiples of 60 still come out right on average.
-3. **Updates the display and sound.** `handleStepResult()` refreshes the display after any instruction that changed it, and handles resolution switches. The beeper sounds while the sound timer is non-zero.
+3. **Updates the display and sound.** If any instruction in the tick changed the display, the frame is copied to `DisplayWidget` once, at the end of the tick. That also handles resolution switches. At XO-CHIP speeds a tick can draw hundreds of sprites, and the screen only repaints once per tick anyway. When single-stepping, `handleStepResult()` updates the display after every instruction. The beeper sounds while the sound timer is non-zero, playing the XO-CHIP audio pattern if the program has set one.
 
 `QTimer` only accepts whole milliseconds, and a repeating 16 ms timer runs at 62.5 Hz. To get exactly 60 Hz on average, `m_cpuTimer` is a single-shot timer that `scheduleNextTick()` restarts against a fixed 1/60 s timeline, measured with `QElapsedTimer`. A late tick shortens the next wait, so the delays don't add up. If the emulator falls more than 100 ms behind (for example, because the event loop was blocked), the timeline resets instead of racing to catch up.
 
 ### Display and sound
 
-**`DisplayWidget`** keeps its own copy of the frame buffer, together with its resolution. `setBuffer(buffer, width, height)` copies a frame of either size. The widget paints with the largest whole-number scale that fits the window, so pixels stay square and sharp, and centres the image. The scale is worked out in physical screen pixels (`devicePixelRatioF()`), so every CHIP-8 pixel is the same size even with fractional Windows scaling such as 125% or 150%.
+**`DisplayWidget`** keeps the frame in an indexed `QImage` at the CHIP-8 resolution. `setBuffer(buffer, width, height)` copies a frame of either size into it, and `paintEvent()` draws the image scaled, with nearest-neighbour scaling. A pixel's value (0–3) is its bitplanes, and it indexes the image's four-colour table, so changing the theme only swaps the colour table. The widget paints with the largest whole-number scale that fits the window, so pixels stay square and sharp, and centres the image. The scale is worked out in physical screen pixels (`devicePixelRatioF()`), so every CHIP-8 pixel is the same size even with fractional Windows scaling such as 125% or 150%.
 
-**Themes.** The display colours come from a `DisplayTheme`, chosen in the preferences dialog:
+**Themes.** The display colours come from a `DisplayTheme`, chosen in the preferences dialog. CHIP-8 and SUPER-CHIP only use the pixel and background colours. XO-CHIP programs also use the colours for pixels set only in plane 2, and for pixels set in both planes:
 
-| Theme | Pixels | Background |
-|---|---|---|
-| Orange on Black (default) | Orange `#FF8C00`, like old amber/orange monochrome monitors | Black |
-| Green on Black | Green `#00DC5A` | Black |
-| White on Black | White | Black |
-| Black on White | Black | White |
+| Theme | Pixels (plane 1) | Background | Plane 2 | Both planes |
+|---|---|---|---|---|
+| Orange on Black (default) | Orange `#FF8C00`, like old amber/orange monochrome monitors | Black | `#8C4600` | `#FFD78C` |
+| Green on Black | Green `#00DC5A` | Black | `#006E2D` | `#BEFFD2` |
+| White on Black | White | Black | `#555555` | `#AAAAAA` |
+| Black on White | Black | White | `#AAAAAA` | `#555555` |
+| Octo | `#FFCC00` | `#996600` | `#FF6600` | `#662200` |
+
+The Octo theme uses the default colours of Octo, so XO-CHIP games look the way their authors saw them.
 
 The themes are listed once, in `displayThemes()` in `displaywidget.cpp`. To add a theme, add an enum value and a row there; the dialog picks it up automatically. The settings store the theme's key (for example `orangeOnBlack`) rather than its number, so reordering the list doesn't change anyone's saved choice.
 
@@ -249,18 +273,23 @@ Loading a ROM or pressing **Stop** returns to low resolution.
 - Other resizes are fitted 200 ms after they settle, through `m_fitTimer`. That includes the first show of the window.
 - Maximized and full-screen windows are left alone.
 
-**`Beeper`** starts one `QAudioSink` stream and keeps it running. The stream reads from `SquareWaveGenerator`, which outputs silence while muted. Muting and unmuting only flips a flag, so the beep starts and stops without delay.
+**`Beeper`** starts one `QAudioSink` stream and keeps it running. The stream reads from `ToneGenerator`, which outputs silence while it is off. Switching it on or off only flips a flag, and the generator is opened unbuffered so `QIODevice` doesn't read ahead, so the beep starts and stops without delay.
+
+Once switched on, the tone plays for at least one 60 Hz frame, even if it is switched off sooner. The audio device pulls samples every 20–30 ms. Without this minimum, a sound timer of 1 (one frame, about 17 ms) could fall between two pulls and never be heard, and XO-CHIP games often use such 1-frame sound effects.
+
+By default the tone is a 440 Hz square wave. After an XO-CHIP program runs `F002`, `MainWindow` passes the program's audio pattern and pitch to the beeper on every tick. The generator then plays the 128 pattern bits on a loop, most significant bit first, at the pitch's rate. The audio callback runs on its own thread, so the pattern is guarded by a mutex.
 
 ## Limitations
 
-- **XO-CHIP is not supported.** That rules out 64 KB memory, colour planes, audio patterns, `00DN` scroll-up and `5XY2`/`5XY3`. XO-CHIP ROMs stop on an invalid opcode.
 - **The VIP 64×64 two-page hires mode is not supported.**
+- **Some XO-CHIP games need their own quirk settings.** Octo lets authors change the quirks per game. For example, skyward from the CHIP-8 Archive expects `FX55`/`FX65` to leave I unchanged, and crashes with the XO-CHIP preset unless that quirk is turned off.
+- **XO-CHIP games often need a higher speed.** Many are written for Octo's speeds of hundreds of instructions per frame, so set the speed to 20000–60000 instructions per second or more.
 - **Some SUPER-CHIP games written with Octo need the VIP quirk preset.** For example, octopeg and sub8 from the CHIP-8 Archive stop with an invalid opcode under the SUPER-CHIP preset, but run with the VIP one.
-- **The maximum ROM size is 3584 bytes** (4096 − 0x200). Larger files are XO-CHIP programs and are rejected when loaded.
+- **The maximum ROM size is 3584 bytes** (4096 − 0x200), or 65024 bytes with XO-CHIP. A larger ROM is rejected when loaded. If it would fit with XO-CHIP, the message suggests turning XO-CHIP on.
 
 ## Where to find ROMs
 
-Most CHIP-8 software is public-domain homebrew, written from 1977 onwards. These are good places to find it. Keep in mind that this emulator runs **CHIP-8 and SUPER-CHIP**, but not XO-CHIP (see [Limitations](#limitations)).
+Most CHIP-8 software is public-domain homebrew, written from 1977 onwards. These are good places to find it. This emulator runs **CHIP-8, SUPER-CHIP and XO-CHIP**; pick the matching quirk preset (see [Quirks](#quirks)).
 
 ### Game and program collections
 
@@ -272,7 +301,7 @@ Most CHIP-8 software is public-domain homebrew, written from 1977 onwards. These
   - The *Chip-8 Games Pack* has 22 games, including Pong, Tetris, Invaders and Maze.
   - The *Super Chip Games Pack* (11 games, including Joust, Race and Alien) needs SUPER-CHIP support.
 - **[CHIP-8 Archive](https://github.com/JohnEarnest/chip8Archive)** ([online gallery](https://johnearnest.github.io/chip8Archive/)): modern games, mostly entries from the yearly Octojam game jam, released under CC0.
-  - CHIP-8 and SCHIP programs run here; the XO-CHIP ones don't.
+  - Its CHIP-8, SCHIP and XO-CHIP programs all run here. The XO-CHIP ones need the XO-CHIP preset.
   - `programs.json` lists the platform for each program.
 - **[mattmikolay/chip-8](https://github.com/mattmikolay/chip-8)**: a few well-made programs under the MIT licence, including Cavern, Chipquarium, and the Delay Timer and Random Number tests.
 - **[Octo on itch.io](https://internet-janitor.itch.io/octo)** and the Octojam pages: the IDE most modern CHIP-8 games are written in. Octojam entries are published on itch.io.
@@ -283,7 +312,7 @@ Most CHIP-8 software is public-domain homebrew, written from 1977 onwards. These
   - the IBM logo, opcodes, flags,
   - **quirks**: this test shows which quirk settings are active, which helps check the presets,
   - the keypad, and sound.
-  - It also has SCHIP tests, including a scrolling test, and XO-CHIP tests. The XO-CHIP tests will fail here.
+  - It also has SCHIP tests, including a scrolling test, and XO-CHIP tests.
 - **[corax89/chip8-test-rom](https://github.com/corax89/chip8-test-rom)**: the `test_opcode.ch8` opcode test. It shows OK or an error for each group of instructions.
 
 ### Finding the right settings for a ROM

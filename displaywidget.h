@@ -7,12 +7,15 @@
 #include "chip8.h"
 
 // Colour schemes for the CHIP-8 screen: pixel colour on background colour.
+// XO-CHIP draws on two bitplanes, so each theme also has a colour for pixels
+// set only in plane 2 and one for pixels set in both planes.
 enum class DisplayTheme
 {
     GreenOnBlack,
     OrangeOnBlack, // like the amber/orange monochrome monitors of old
     WhiteOnBlack,
-    BlackOnWhite
+    BlackOnWhite,
+    Octo // the default colours of Octo, the XO-CHIP reference implementation
 };
 
 struct DisplayThemeInfo
@@ -20,8 +23,10 @@ struct DisplayThemeInfo
     DisplayTheme theme;
     const char  *key;  // stored in the settings
     const char  *name; // shown in the preferences dialog
-    QColor       foreground;
+    QColor       foreground; // plane 1, the only plane CHIP-8 and SUPER-CHIP use
     QColor       background;
+    QColor       plane2;     // XO-CHIP: plane 2 only
+    QColor       bothPlanes; // XO-CHIP: planes 1 and 2
 };
 
 // All themes, in the order they are listed in the preferences dialog.
@@ -54,9 +59,10 @@ protected:
     void paintEvent(QPaintEvent *event) override;
 
 private:
-    // The CHIP-8 frame at its native resolution, one byte per pixel. It is indexed:
-    // colour 0 is the theme background and colour 1 the foreground, so changing
-    // the theme only swaps the colour table.
+    // The CHIP-8 frame at its native resolution, one byte per pixel. It is indexed
+    // by the pixel's bitplanes: 0 is the theme background, 1 the foreground,
+    // 2 plane 2 only and 3 both planes, so changing the theme only swaps the
+    // colour table.
     QImage m_image;
 };
 

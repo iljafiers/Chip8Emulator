@@ -602,13 +602,26 @@ void MainWindow::onEmulationTick()
 
         m_chip8.tickTimers();
 
+        // The screen repaints at most once per tick, but at XO-CHIP speeds a tick can
+        // draw hundreds of sprites, so the frame is copied to the display once at the end.
+        bool frameChanged = false;
+        bool modeChanged  = false;
+        auto flushDisplay = [&]() {
+            if (frameChanged)
+                showDisplay(modeChanged);
+            frameChanged = modeChanged = false;
+        };
+
         while (m_instructionAllotment >= TICKS_PER_SECOND)
         {
             m_instructionAllotment -= TICKS_PER_SECOND;
 
             // do one instruction
             Chip8::StepResult result = m_chip8.step();
-            handleStepResult(result);
+            if (result == Chip8::StepResult::GraphicsChanged)
+                frameChanged = true;
+            else if (result == Chip8::StepResult::ModeToHigh || result == Chip8::StepResult::ModeToLow)
+                frameChanged = modeChanged = true;
             if (result == Chip8::StepResult::Exited)
             {
                 onProgramExited();
@@ -621,11 +634,16 @@ void MainWindow::onEmulationTick()
                 m_beeper->setActive(false); // don't keep beeping while the message is open
                 updateRunningActions();
                 m_statusStateLabel->setText(tr("Error: %1").arg(QString::fromStdString(m_chip8.errorString())));
+                flushDisplay(); // show the last frame behind the error message
                 showErrorMessage();
                 break;
             }
         }
+        flushDisplay();
 
+        // XO-CHIP programs can replace the buzzer with their own audio pattern
+        static_assert(ToneGenerator::PATTERN_BYTES == Chip8::AUDIO_PATTERN_SIZE, "audio pattern sizes differ");
+        m_beeper->setPattern(m_chip8.hasAudioPattern() ? m_chip8.audioPattern() : nullptr, m_chip8.pitch());
         m_beeper->setActive(m_soundEnabled && m_runState == RunState::Running && m_chip8.soundTimer() > 0);
     }
 }
