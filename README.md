@@ -252,6 +252,8 @@ The preferences dialog has three presets:
 
 A game that fails with one preset often runs with another.
 
+Each preset also sets the speed. The COSMAC VIP and SUPER-CHIP presets set 700 instructions per second. The XO-CHIP preset sets 60000, Octo's 1000 instructions per frame, because XO-CHIP games are written for Octo's much higher speeds. Octo games pace themselves with the delay timer, so the extra speed doesn't make them run too fast. The speed can still be changed by hand before pressing OK.
+
 ### Timing
 
 Everything is driven by one 60 Hz tick, `MainWindow::onEmulationTick()`. Each tick:
@@ -299,7 +301,7 @@ By default the tone is a 440 Hz square wave. After an XO-CHIP program runs `F002
 
 - **Some hires programs need their own quirk settings too.** Hires Sierpinski from the Chip-8 Program Pack only draws two dots with the VIP preset. It expects `FX55`/`FX65` to leave I unchanged, and draws correctly with that quirk off.
 - **Some XO-CHIP games need their own quirk settings.** Octo lets authors change the quirks per game. For example, skyward from the CHIP-8 Archive expects `FX55`/`FX65` to leave I unchanged, and crashes with the XO-CHIP preset unless that quirk is turned off.
-- **XO-CHIP games often need a higher speed.** Many are written for Octo's speeds of hundreds of instructions per frame, so set the speed to 20000–60000 instructions per second or more.
+- **The speed is one setting for all games.** The XO-CHIP preset sets 60000 instructions per second, and the other presets 700. A game written for a different speed needs it set by hand.
 - **Some SUPER-CHIP games written with Octo need the VIP quirk preset.** For example, octopeg and sub8 from the CHIP-8 Archive stop with an invalid opcode under the SUPER-CHIP preset, but run with the VIP one.
 - **The maximum ROM size is 3584 bytes** (4096 − 0x200), or 65024 bytes with XO-CHIP. A larger ROM is rejected when loaded. If it would fit with XO-CHIP, the message suggests turning XO-CHIP on.
 

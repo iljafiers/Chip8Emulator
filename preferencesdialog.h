@@ -13,6 +13,12 @@ class PreferencesDialog : public QDialog
 {
     Q_OBJECT
 public:
+    // Speeds the quirk presets set: classic CHIP-8 and SUPER-CHIP games expect a
+    // few hundred instructions per second, while XO-CHIP games are written for
+    // Octo, which runs up to 1000 instructions per frame (60000 per second).
+    static const int DEFAULT_IPS = 700;
+    static const int XO_CHIP_IPS = 60000;
+
     explicit PreferencesDialog(QWidget *parent = nullptr);
 
     void setInstructionsPerSecond(int ips);

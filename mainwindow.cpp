@@ -179,7 +179,7 @@ MainWindow::MainWindow(QWidget *parent)
     , m_fitTimer(new QTimer(this))
     , m_inSizeMove(false)
     , m_runState(RunState::Stopped)
-    , m_instructionsPerSecond(700)
+    , m_instructionsPerSecond(PreferencesDialog::DEFAULT_IPS)
     , m_instructionAllotment(0)
     , m_stepTimerAllotment(0)
     , m_nextTickNs(0)
@@ -336,7 +336,7 @@ void MainWindow::loadSettings()
 
     m_instructionsPerSecond = settings.value("speed/instructionsPerSecond", m_instructionsPerSecond).toInt();
     if (m_instructionsPerSecond <= 0)
-        m_instructionsPerSecond = 700;
+        m_instructionsPerSecond = PreferencesDialog::DEFAULT_IPS;
 
     m_soundEnabled = settings.value("sound/enabled", m_soundEnabled).toBool();
 

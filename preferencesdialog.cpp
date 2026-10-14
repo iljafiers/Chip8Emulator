@@ -21,7 +21,7 @@ PreferencesDialog::PreferencesDialog(QWidget *parent)
     // --- Speed setting -------------------------------------------------
     m_edtIps = new QLineEdit(this);
     m_edtIps->setValidator(new QIntValidator(1, 1000000, this));
-    m_edtIps->setText("700");
+    m_edtIps->setText(QString::number(DEFAULT_IPS));
 
     QFormLayout *speedLayout = new QFormLayout;
     speedLayout->addRow(tr("Instructions per second:"), m_edtIps);
@@ -62,7 +62,7 @@ PreferencesDialog::PreferencesDialog(QWidget *parent)
     quirksLayout->addWidget(m_chkVfReset);
     quirksLayout->addWidget(m_chkXoChip);
 
-    // presets set all checkboxes at once
+    // presets set all checkboxes at once, and the speed that suits the platform
     QPushButton *btnPresetVip   = new QPushButton(tr("CHIP-8 (COSMAC VIP)"), quirksBox);
     QPushButton *btnPresetSchip = new QPushButton(tr("CHIP-48 / SUPER-CHIP"), quirksBox);
     QPushButton *btnPresetXo    = new QPushButton(tr("XO-CHIP"), quirksBox);
@@ -74,12 +74,15 @@ PreferencesDialog::PreferencesDialog(QWidget *parent)
     btnPresetXo->setToolTip(tr("Octo's extended CHIP-8; games from the Octojam game jams"));
     connect(btnPresetVip, &QPushButton::clicked, this, [this]() {
         setQuirks(Chip8::Quirks::cosmacVip());
+        setInstructionsPerSecond(DEFAULT_IPS);
     });
     connect(btnPresetSchip, &QPushButton::clicked, this, [this]() {
         setQuirks(Chip8::Quirks::superChip());
+        setInstructionsPerSecond(DEFAULT_IPS);
     });
     connect(btnPresetXo, &QPushButton::clicked, this, [this]() {
         setQuirks(Chip8::Quirks::xoChipPreset());
+        setInstructionsPerSecond(XO_CHIP_IPS);
     });
 
     QHBoxLayout *presetLayout = new QHBoxLayout;
@@ -113,7 +116,7 @@ int PreferencesDialog::instructionsPerSecond() const
     bool ok    = false;
     int  value = m_edtIps->text().toInt(&ok);
     if (!ok || value <= 0)
-        return 700;
+        return DEFAULT_IPS;
     return value;
 }
 
