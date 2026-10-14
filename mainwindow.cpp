@@ -382,11 +382,20 @@ void MainWindow::stopTimer()
 
 void MainWindow::onLoadROM()
 {
+    // ROM packs often keep a .txt file with the same name next to each ROM, so
+    // the default filter leaves those out. Some ROMs have no extension at all
+    // (such as the Zophar game packs); the Windows file dialog matches those with
+    // "*.", other platforms need "All files".
+#ifdef Q_OS_WIN
+    const QString romPatterns = QStringLiteral("*.ch8 *.c8 *.rom *.");
+#else
+    const QString romPatterns = QStringLiteral("*.ch8 *.c8 *.rom");
+#endif
+    const QString filters = tr("CHIP-8 ROMs (%1)").arg(romPatterns) + ";;" + tr("All files (*)");
+
     // start in the folder the last ROM was loaded from
     QSettings settings;
-    QString   path = QFileDialog::getOpenFileName(
-        this, tr("Load ROM"), settings.value("rom/lastFolder").toString(),
-        tr("Chip8 ROMs (*.ch8 *.c8 *.rom *.*)"));
+    QString   path = QFileDialog::getOpenFileName(this, tr("Load ROM"), settings.value("rom/lastFolder").toString(), filters);
     if (path.isEmpty())
         return;
 
