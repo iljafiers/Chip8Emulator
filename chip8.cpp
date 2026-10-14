@@ -288,6 +288,11 @@ Chip8::StepResult Chip8::step()
                     setError(Error::InvalidOpcode, opcode, m_PC);
                     break;
                 default:
+                    if ((opcode & 0xFFF0) == 0x00D0) // 00DN: XO-CHIP scroll up, not supported
+                    {
+                        setError(Error::InvalidOpcode, opcode, m_PC);
+                        break;
+                    }
                     if ((opcode & 0xFFF0) == 0x00C0) // SCD n: scroll the display down by n pixels (SUPER-CHIP)
                     {
                         scrollDisplay(0, opcode & 0x000F);

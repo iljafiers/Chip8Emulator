@@ -57,6 +57,7 @@ int mapQtKeyToChip8(int key)
 
 // Maps by physical key position, so the keypad works the same on any keyboard
 // layout and isn't affected by Shift. Windows set-1 scan codes.
+#ifdef Q_OS_WIN
 int mapScanCodeToChip8(quint32 scanCode)
 {
     switch (scanCode)
@@ -81,11 +82,46 @@ int mapScanCodeToChip8(quint32 scanCode)
     }
 }
 
+#endif
+
+#ifdef Q_OS_MACOS
+// macOS reports no scan code, but its virtual key codes (kVK_ANSI_* from
+// HIToolbox/Events.h) also name physical key positions, independent of layout.
+int mapMacVirtualKeyToChip8(quint32 virtualKey)
+{
+    switch (virtualKey)
+    {
+        case 0x12: return 0x1; // 1
+        case 0x13: return 0x2; // 2
+        case 0x14: return 0x3; // 3
+        case 0x15: return 0xC; // 4
+        case 0x0C: return 0x4; // Q
+        case 0x0D: return 0x5; // W
+        case 0x0E: return 0x6; // E
+        case 0x0F: return 0xD; // R
+        case 0x00: return 0x7; // A
+        case 0x01: return 0x8; // S
+        case 0x02: return 0x9; // D
+        case 0x03: return 0xE; // F
+        case 0x06: return 0xA; // Z
+        case 0x07: return 0x0; // X
+        case 0x08: return 0xB; // C
+        case 0x09: return 0xF; // V
+        default: return -1;
+    }
+}
+#endif
+
 int mapKeyEventToChip8(const QKeyEvent *event)
 {
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN)
     if (event->nativeScanCode() != 0)
         return mapScanCodeToChip8(event->nativeScanCode());
+#elif defined(Q_OS_MACOS)
+    // kVK_ANSI_A is 0, so 0 can't mean "no native info"; only trust it for
+    // events that came from the system rather than being synthesized
+    if (event->spontaneous())
+        return mapMacVirtualKeyToChip8(event->nativeVirtualKey());
 #endif
     return mapQtKeyToChip8(event->key());
 }
@@ -241,8 +277,9 @@ void MainWindow::createMenus()
     runMenu->addSeparator();
     runMenu->addAction(m_actStep);
 
-    // "About" sits directly on the menu bar (no submenu), as requested.
-    menuBar()->addAction(m_actAbout);
+    // on macOS, Qt moves About into the application menu
+    QMenu *helpMenu = menuBar()->addMenu(tr("&Help"));
+    helpMenu->addAction(m_actAbout);
 }
 
 void MainWindow::createToolbar()
@@ -559,7 +596,7 @@ void MainWindow::onEmulationTick()
 
         m_chip8.tickTimers();
 
-        while (m_instructionAllotment > TICKS_PER_SECOND)
+        while (m_instructionAllotment >= TICKS_PER_SECOND)
         {
             m_instructionAllotment -= TICKS_PER_SECOND;
 
@@ -576,8 +613,8 @@ void MainWindow::onEmulationTick()
                 m_runState = RunState::Error;
                 m_cpuTimer->stop();
                 m_beeper->setActive(false); // don't keep beeping while the message is open
-                m_statusStateLabel->setText(tr("Error: %1").arg(QString::fromStdString(m_chip8.errorString())));
                 updateRunningActions();
+                m_statusStateLabel->setText(tr("Error: %1").arg(QString::fromStdString(m_chip8.errorString())));
                 showErrorMessage();
                 break;
             }
@@ -730,7 +767,7 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
     {
         // remember which CHIP-8 key this physical key pressed, so the release
         // maps to the same key even if a modifier changed event->key() meanwhile.
-        // Some platforms (e.g. macOS) report no scan code; those map by key only.
+        // macOS reports no scan code, but maps by virtual key, which is just as stable.
         if (event->nativeScanCode() != 0)
             m_pressedKeys.insert(event->nativeScanCode(), chipKey);
         m_chip8.setKeyState(chipKey, true);
