@@ -3,6 +3,7 @@
 
 #include <QWidget>
 #include <QColor>
+#include <QImage>
 #include "chip8.h"
 
 // Colour schemes for the CHIP-8 screen: pixel colour on background colour.
@@ -37,8 +38,8 @@ public:
 
     // Copies a width x height frame (64x32 or 128x64), one byte per pixel.
     void setBuffer(const uint8_t *buffer, int width, int height);
-    int  gridWidth() const { return m_gridWidth; } // resolution of the current frame
-    int  gridHeight() const { return m_gridHeight; }
+    int  gridWidth() const { return m_image.width(); } // resolution of the current frame
+    int  gridHeight() const { return m_image.height(); }
 
     void setTheme(DisplayTheme theme);
 
@@ -53,11 +54,10 @@ protected:
     void paintEvent(QPaintEvent *event) override;
 
 private:
-    uint8_t m_buffer[Chip8::HIRES_WIDTH * Chip8::HIRES_HEIGHT];
-    int     m_gridWidth  = Chip8::LORES_WIDTH;
-    int     m_gridHeight = Chip8::LORES_HEIGHT;
-    QColor  m_foreground;
-    QColor  m_background;
+    // The CHIP-8 frame at its native resolution, one byte per pixel. It is indexed:
+    // colour 0 is the theme background and colour 1 the foreground, so changing
+    // the theme only swaps the colour table.
+    QImage m_image;
 };
 
 #endif // DISPLAYWIDGET_H

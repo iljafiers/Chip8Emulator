@@ -1,7 +1,6 @@
 #include "displaywidget.h"
 
 #include <QPainter>
-#include <cstring>
 #include <algorithm>
 
 const QList<DisplayThemeInfo> &displayThemes()
@@ -42,29 +41,43 @@ DisplayTheme displayThemeFromKey(const QString &key, DisplayTheme fallback)
 DisplayWidget::DisplayWidget(QWidget *parent)
     : QWidget(parent)
 {
-    memset(m_buffer, 0, sizeof(m_buffer));
+    m_image = QImage(Chip8::LORES_WIDTH, Chip8::LORES_HEIGHT, QImage::Format_Indexed8);
+    m_image.setColorCount(2);
+    m_image.fill(0);
     setMinimumSize(Chip8::LORES_WIDTH * 4, Chip8::LORES_HEIGHT * 4);
-    setAutoFillBackground(true);
+    setAutoFillBackground(true); // fills the margins around the image
     setTheme(DisplayTheme::OrangeOnBlack);
 }
 
 void DisplayWidget::setBuffer(const uint8_t *src, int width, int height)
 {
-    m_gridWidth  = width;
-    m_gridHeight = height;
-    memcpy(m_buffer, src, static_cast<size_t>(width * height));
+    if (m_image.width() != width || m_image.height() != height)
+    {
+        QImage image(width, height, QImage::Format_Indexed8);
+        image.setColorTable(m_image.colorTable());
+        m_image = image;
+    }
+
+    // scanlines may be padded, so copy row by row
+    for (int y = 0; y < height; ++y)
+    {
+        uchar         *line = m_image.scanLine(y);
+        const uint8_t *row  = src + y * width;
+        for (int x = 0; x < width; ++x)
+            line[x] = row[x] ? 1 : 0;
+    }
     update();
 }
 
 void DisplayWidget::setTheme(DisplayTheme theme)
 {
     const DisplayThemeInfo &info = displayThemeInfo(theme);
-    m_foreground                 = info.foreground;
-    m_background                 = info.background;
+    m_image.setColor(0, info.background.rgb());
+    m_image.setColor(1, info.foreground.rgb());
 
     // also used for the margins around the image
     QPalette pal = palette();
-    pal.setColor(QPalette::Window, m_background);
+    pal.setColor(QPalette::Window, info.background);
     setPalette(pal);
     update();
 }
@@ -72,8 +85,8 @@ void DisplayWidget::setTheme(DisplayTheme theme)
 int DisplayWidget::pixelScale() const
 {
     const qreal dpr    = devicePixelRatioF();
-    int         scaleX = static_cast<int>(width() * dpr) / m_gridWidth;
-    int         scaleY = static_cast<int>(height() * dpr) / m_gridHeight;
+    int         scaleX = static_cast<int>(width() * dpr) / m_image.width();
+    int         scaleY = static_cast<int>(height() * dpr) / m_image.height();
     return std::max(1, std::min(scaleX, scaleY));
 }
 
@@ -85,7 +98,6 @@ QSize DisplayWidget::sizeHint() const
 void DisplayWidget::paintEvent(QPaintEvent *)
 {
     QPainter painter(this);
-    painter.fillRect(rect(), m_background);
 
     // draw in device pixels, so pixel edges land on whole screen pixels
     const qreal dpr = devicePixelRatioF();
@@ -94,18 +106,10 @@ void DisplayWidget::paintEvent(QPaintEvent *)
     const int deviceHeight = static_cast<int>(height() * dpr);
 
     int scale   = pixelScale();
-    int offsetX = (deviceWidth - scale * m_gridWidth) / 2;
-    int offsetY = (deviceHeight - scale * m_gridHeight) / 2;
+    int offsetX = (deviceWidth - scale * m_image.width()) / 2;
+    int offsetY = (deviceHeight - scale * m_image.height()) / 2;
 
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(m_foreground);
-
-    for (int y = 0; y < m_gridHeight; ++y)
-    {
-        for (int x = 0; x < m_gridWidth; ++x)
-        {
-            if (m_buffer[y * m_gridWidth + x])
-                painter.drawRect(offsetX + x * scale, offsetY + y * scale, scale, scale);
-        }
-    }
+    // nearest-neighbour scaling keeps the pixels sharp
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
+    painter.drawImage(QRect(offsetX, offsetY, scale * m_image.width(), scale * m_image.height()), m_image);
 }
