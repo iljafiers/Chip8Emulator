@@ -78,7 +78,8 @@ Qt Creator ships `clang-format` in `Tools/QtCreator/bin/clang/bin` (under your Q
 
 1. **File → Load ROM...** loads a `.ch8` file. The emulator starts out paused.
    - The dialog opens in the folder the last ROM was loaded from.
-   - By default it lists only ROM files: `.ch8`, `.c8` and `.rom`, plus files without an extension on Windows. This hides the `.txt` files that ROM packs often keep next to each ROM. To load anything else, including extensionless ROMs on macOS and Linux, choose **All files**.
+   - By default it lists only ROM files (`.ch8`, `.c8` and `.rom`). This hides the `.txt` files that ROM packs often keep next to each ROM. ROMs without an extension, such as those in the Zophar game packs, need **All files**: file dialogs can't filter for "no extension". The dialog remembers the filter you chose last, so you only have to pick **All files** once.
+   - If the file you pick looks like a text file, the emulator asks before loading it, because it would otherwise run the text as instructions. A file counts as text if it has no control bytes besides tab, line breaks, form feed and the DOS end-of-file marker (`0x1A`); nearly every CHIP-8 opcode produces such bytes. On the ROM collections listed below, this tells every ROM apart from every text file.
    - The ROM that is in memory when the app closes is loaded again at the next start, paused and not yet running.
    - If that ROM can't be loaded (moved, deleted or too large), the app starts empty, without an error message.
 2. Use **Play / Pause / Stop / Step** on the toolbar or in the **Run** menu. These are disabled until a ROM is loaded. **Run → Pause** is ticked while the emulator is paused.

@@ -133,6 +133,27 @@ bool loadROMData(Chip8 &chip8, const QByteArray &data)
                          static_cast<size_t>(data.size()));
 }
 
+// True for a text file, such as the notes ROM packs keep next to each ROM. Text
+// has no control bytes besides tab, line breaks, form feed and the DOS end-of-file
+// marker (0x1A), while nearly every CHIP-8 opcode produces bytes below 0x20
+// (00E0, 00EE, 1NNN, 6X00, ...). Bytes from 0x80 up are allowed, for accented
+// characters in any encoding, as long as they are a small minority.
+bool looksLikeText(const QByteArray &data)
+{
+    if (data.isEmpty())
+        return false;
+    qsizetype highBytes = 0;
+    for (char ch : data)
+    {
+        const uchar b = static_cast<uchar>(ch);
+        if (b >= 0x80)
+            ++highBytes;
+        else if ((b < 0x20 && b != '\t' && b != '\n' && b != '\r' && b != '\f' && b != 0x1A) || b == 0x7F)
+            return false;
+    }
+    return highBytes * 10 <= data.size();
+}
+
 // Toolbar icon with its own faded artwork for the disabled state, since Qt's
 // automatic greying barely changes a mid-grey icon. Each state ships as a
 // 24px and a 48px (@2x, for high-DPI screens) PNG.
@@ -383,21 +404,21 @@ void MainWindow::stopTimer()
 void MainWindow::onLoadROM()
 {
     // ROM packs often keep a .txt file with the same name next to each ROM, so
-    // the default filter leaves those out. Some ROMs have no extension at all
-    // (such as the Zophar game packs); the Windows file dialog matches those with
-    // "*.", other platforms need "All files".
-#ifdef Q_OS_WIN
-    const QString romPatterns = QStringLiteral("*.ch8 *.c8 *.rom *.");
-#else
-    const QString romPatterns = QStringLiteral("*.ch8 *.c8 *.rom");
-#endif
-    const QString filters = tr("CHIP-8 ROMs (%1)").arg(romPatterns) + ";;" + tr("All files (*)");
+    // the default filter leaves those out. ROMs without an extension (such as
+    // the Zophar game packs) need "All files": file dialogs can't filter for
+    // "no extension". The filter last chosen is remembered, so someone using such
+    // ROMs only has to pick "All files" once.
+    const QString romFilter = tr("CHIP-8 ROMs (*.ch8 *.c8 *.rom)");
+    const QString allFilter = tr("All files (*)");
 
     // start in the folder the last ROM was loaded from
     QSettings settings;
-    QString   path = QFileDialog::getOpenFileName(this, tr("Load ROM"), settings.value("rom/lastFolder").toString(), filters);
+    QString   selectedFilter = settings.value("rom/lastFilter").toString() == QLatin1String("all") ? allFilter : romFilter;
+    QString   path = QFileDialog::getOpenFileName(this, tr("Load ROM"), settings.value("rom/lastFolder").toString(),
+                                                  romFilter + ";;" + allFilter, &selectedFilter);
     if (path.isEmpty())
         return;
+    settings.setValue("rom/lastFilter", selectedFilter == allFilter ? "all" : "roms");
 
     if (loadROMFile(path, true))
         settings.setValue("rom/lastFolder", QFileInfo(path).absolutePath());
@@ -428,6 +449,20 @@ bool MainWindow::loadROMFile(const QString &path, bool showErrors)
     }
 
     QByteArray data = file.readAll();
+
+    // loading a text file by mistake would run the text as instructions
+    if (showErrors && looksLikeText(data))
+    {
+        QMessageBox::StandardButton answer = QMessageBox::question(
+            this, tr("Load ROM"),
+            tr("%1 looks like a text file, not a CHIP-8 ROM. ROM packs often keep a text file with notes "
+               "next to each ROM.\n\nLoad it anyway?")
+                .arg(QFileInfo(path).fileName()),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (answer != QMessageBox::Yes)
+            return false;
+    }
+
     m_chip8.setQuirks(m_quirks);
     if (!loadROMData(m_chip8, data))
     {
